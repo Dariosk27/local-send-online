@@ -49,10 +49,29 @@ jobs:
   # NATs of GitHub's hosting providers, which we do not control: a failure here
   # with the "hole punching" diagnosis is a legitimate, informative result, so
   # the jobs do not fail the workflow.
+  # Verbose control-plane log against the real public IPFS network.
+  internet-diag:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: "lso-${{ matrix.os }}", path: bin }
+      - run: chmod +x bin/lso
+      - run: bin/lso -v --identity-seed "ci-$GITHUB_RUN_ID-diagv-${{ matrix.os }}" diag --seconds 40 2>&1 | head -400
+        env:
+          RUST_LOG: info,libp2p_swarm=debug,libp2p_identify=debug,libp2p_dns=debug,libp2p_kad=info,libp2p_relay=debug
+
   internet-mac-receiver:
     needs: build
     runs-on: macos-latest
     continue-on-error: true
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -63,7 +82,7 @@ jobs:
       - name: receive
         run: |
           python3 tests/gen_file.py "ci-$GITHUB_RUN_ID" 50 expected.bin
-          timeout 900 bin/lso --identity-seed "ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-mac" -v \
+          bin/lso --identity-seed "ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-mac" -v \
             receive --dir out --yes --once
           shasum -a 256 expected.bin out/*
           cmp expected.bin out/expected.bin
@@ -72,6 +91,7 @@ jobs:
     needs: build
     runs-on: windows-latest
     continue-on-error: true
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
