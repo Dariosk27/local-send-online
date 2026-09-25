@@ -16,7 +16,7 @@ W="${WORK:-/tmp/lso-lab}"
 SIZE_MB="${SIZE_MB:-100}"
 declare -a RESULTS
 
-cleanup() { pkill -f "$B" 2>/dev/null; sleep 0.5; "$NL" down; }
+cleanup() { pkill -f "^$B( |$)" 2>/dev/null; sleep 0.5; "$NL" down; }
 trap cleanup EXIT
 
 relay_bytes() {
@@ -84,7 +84,7 @@ run_resume() {
   send "$TICKET" & local pid=$!
   for _ in $(seq 60); do ls "$W/b/in"/.*.lso-part >/dev/null 2>&1 && break; sleep 0.5; done
   sleep 4
-  pkill -f "$B.*send" ; wait $pid 2>/dev/null
+  pkill -f "^$B .* send " ; wait $pid 2>/dev/null
   local part; part=$(stat -c %s "$W/b/in"/.*.lso-part 2>/dev/null || echo 0)
   ip netns exec lab-inet tc qdisc del dev i-natB root
   sleep 2
