@@ -182,6 +182,8 @@ main { flex: 1; min-height: 0; overflow: auto; }
 .seg.active { background: var(--card); color: var(--blue); box-shadow: 0 1px 3px rgba(0, 0, 0, .08); }
 .tab { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .tab .list { align-self: stretch; }
+.code-card { align-self: stretch; background: var(--card); border-radius: 16px; box-shadow: var(--shadow); padding: 22px 16px 24px; display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 6px; }
+.code-card .code { font-size: 38px; }
 .qr { width: 176px; height: 176px; background: #fff; border-radius: 16px; padding: 12px; border: 1px solid var(--line); display: grid; place-items: center; margin-top: 6px; }
 .qr svg { width: 100%; height: 100%; stroke: none; }
 .code { font-size: 30px; font-weight: 700; letter-spacing: .06em; font-variant-numeric: tabular-nums; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; user-select: text; -webkit-user-select: text; }

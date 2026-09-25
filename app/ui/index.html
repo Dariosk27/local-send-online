@@ -23,7 +23,7 @@
       <div class="hero">
         <div class="hero-icon"><img src="icon.png" alt=""></div>
         <h1>Local Send Online</h1>
-        <p class="muted">Invia e ricevi file direttamente da un altro dispositivo.<br>Nessun server centrale.</p>
+        <p class="muted">Invia e ricevi file direttamente da un altro dispositivo.<br>I file non passano da nessun server.</p>
       </div>
       <div class="actions">
         <button class="btn primary big" id="goSend">
@@ -77,12 +77,14 @@
         <button class="seg" data-tab="recent">Dispositivi recenti</button>
       </div>
       <div class="tab" data-tab-panel="code">
-        <div class="qr" id="qr"><div class="spinner"></div></div>
-        <div class="code" id="codeText">— — — —</div>
+        <div class="code-card">
+          <div class="muted small">Il tuo codice</div>
+          <div class="code" id="codeText">— — — —</div>
+        </div>
         <button class="btn soft" id="copyCode">
           <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Copia codice
         </button>
-        <p class="muted center">Condividi questo codice con l'altro dispositivo:<br>lo inserisce in <b>Ricevi file</b>.</p>
+        <p class="muted center">Detta o manda questo codice all'altra persona:<br>lo inserisce in <b>Ricevi file</b> nella sua app.</p>
         <div class="waiting" id="codeWaiting"><div class="spinner small"></div><span>In attesa che venga inserito…</span></div>
         <div class="expiry" id="expiry">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span id="expiryText">Il codice scade tra 5:00</span>
@@ -185,10 +187,10 @@
         <ul class="checks">
           <li>I file vanno direttamente da un dispositivo all'altro, mai su un server</li>
           <li>Usa solo la banda delle vostre due linee</li>
+          <li>Per trovarsi usa nodi pubblici della rete IPFS: vedono solo che due dispositivi si cercano, mai i file</li>
           <li>Funziona su reti diverse (attraversamento del NAT)</li>
           <li>Crittografia end-to-end e verifica di ogni file</li>
         </ul>
-        <button class="link" id="copyTicket">Copia il mio indirizzo permanente</button>
       </div>
     </section>
   </main>
@@ -215,7 +217,6 @@
 
   <div class="toast" id="toast" hidden></div>
 
-  <script src="vendor/qrcode.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

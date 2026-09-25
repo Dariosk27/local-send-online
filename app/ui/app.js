@@ -282,12 +282,6 @@
       share = { id: s.id, code: s.code, expiresAt: Date.now() + s.expires_in * 1000 };
     } catch (e) { toast(String(e)); return; }
     $('codeText').textContent = share.code.replace('-', ' - ');
-    try {
-      const qr = qrcode(0, 'M');
-      qr.addData(share.code);
-      qr.make();
-      $('qr').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
-    } catch { $('qr').textContent = ''; }
     $('newCode').hidden = true;
     $('codeWaiting').hidden = false;
     $('expiry').classList.remove('expired');
@@ -544,11 +538,6 @@
   $('setFolderBtn').addEventListener('click', async () => {
     const dir = await dialog.open({ directory: true, title: 'Cartella per i file ricevuti' });
     if (dir) { settings.download_dir = dir; await saveSettings(); renderSettings(); }
-  });
-  $('copyTicket').addEventListener('click', async () => {
-    if (!status) return;
-    await navigator.clipboard.writeText(status.ticket);
-    toast('Indirizzo permanente copiato');
   });
   function renderNet() {
     if (!status) return;
