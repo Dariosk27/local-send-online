@@ -12,10 +12,10 @@
       {
         "label": "main",
         "title": "Local Send Online",
-        "width": 1000,
+        "width": 460,
         "height": 700,
-        "minWidth": 780,
-        "minHeight": 580,
+        "minWidth": 420,
+        "minHeight": 620,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "dragDropEnabled": true
@@ -27,7 +27,11 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg", "nsis"],
+    "targets": [
+      "app",
+      "dmg",
+      "nsis"
+    ],
     "category": "Utility",
     "shortDescription": "Invio file diretto tra dispositivi, senza cloud",
     "icon": [

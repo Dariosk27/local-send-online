@@ -31,17 +31,29 @@ UI in HTML/CSS, stesso core Rust della CLI). La CI produce
 `LocalSendOnline.dmg` (Mac Intel + Apple Silicon) e
 `LocalSendOnline-Setup.exe` (Windows).
 
-- **Ricevi**: il tuo codice (testo + QR) da mandare a chi ti invia file;
-  ogni invio chiede conferma.
-- **Invia**: trascina i file, scegli un contatto o incolla un codice.
-- **Attività**: avanzamento reale, velocità, verifica finale; se il
-  collegamento diretto è impossibile, spiega perché in parole semplici.
-- **Contatti**: i dispositivi con cui hai già scambiato file restano
-  in elenco (ritrovati per PeerId anche se cambiano IP).
+Flusso:
+1. **Invia file** → scegli o trascina i file → **Continua**.
+2. L'app mostra un **codice breve** (es. `7F3K-9H2P`, anche come QR), valido
+   5 minuti e usabile una volta sola. Lo detti o lo mandi all'altra persona.
+3. L'altra persona apre **Ricevi file**, scrive il codice, conferma la
+   richiesta: i file arrivano con avanzamento reale, velocità, tempo
+   rimanente e verifica finale. **Annulla** interrompe (il parziale resta per
+   riprendere).
+4. Chi ha già scambiato file con te compare in **Dispositivi recenti**: la
+   volta dopo basta un clic, niente codice.
+
+Il codice serve solo a *trovarsi*: il mittente lo pubblica per pochi minuti
+nella DHT come chiave derivata dal codice; chi lo digita trova il PeerId del
+mittente, si collega direttamente e chiede i file. Il trasferimento resta
+diretto, cifrato e con conferma esplicita.
+
+Impostazioni: nome del dispositivo, cartella di ricezione, notifiche di
+sistema, accettazione automatica dai dispositivi recenti, stato della rete.
 
 Compilare in locale: `cd app/src-tauri && npx @tauri-apps/cli@2 build`
 (su Linux servono `libwebkit2gtk-4.1-dev` e `libgtk-3-dev`).
-Anteprima grafica nel browser: `cd app/ui && python3 -m http.server`
+Anteprima grafica nel browser: `cd app/ui && python3 -m http.server`,
+poi `index.html?s=home|files|connect|transfer|done|receive|offer|settings`
 (usa `dev/preview.js`, un backend finto solo per il design).
 
 ## Uso da riga di comando (CLI)
@@ -56,6 +68,9 @@ lso receive --dir ~/Downloads/lso
 # chi invia (altra rete, altro sistema operativo)
 lso send lso1…  foto.zip video.mp4    # con il ticket
 lso send 12D3KooW…  foto.zip          # oppure solo con il PeerId (ricerca DHT)
+
+lso share foto.zip           # stampa un codice breve (5 minuti)
+lso get 7F3K-9H2P            # riceve con il codice
 
 lso diag     # cosa vede Internet di questa rete: NAT simmetrico? UPnP? relay?
 lso id       # PeerId di questo dispositivo

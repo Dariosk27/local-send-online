@@ -13,7 +13,7 @@ use lso_core::{
     config::{self, TRANSFER_PROTOCOL},
     identity,
     node::{describe_hint, Node, NodeConfig, NodeEvent, Role},
-    ticket,
+    rendezvous, ticket,
     transfer::{self, Progress},
     Multiaddr,
 };
@@ -80,6 +80,19 @@ enum Cmd {
         #[arg(required = true)]
         files: Vec<PathBuf>,
     },
+    /// Condivide file con un codice breve (es. 7F3K-9H2P) valido 5 minuti.
+    Share {
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+    },
+    /// Riceve i file condivisi con `share`, dato il codice breve.
+    Get {
+        code: String,
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        #[arg(long)]
+        yes: bool,
+    },
     /// Diagnostica NAT: indirizzo pubblico osservato, NAT simmetrico, UPnP, relay.
     Diag {
         #[arg(long, default_value_t = 25)]
@@ -113,6 +126,8 @@ async fn main() -> Result<()> {
         }
         Cmd::Receive { dir, yes, once } => receive(&cli.net, dir, yes, once).await,
         Cmd::Send { target, files } => send(&cli.net, &target, &files).await,
+        Cmd::Share { files } => share(&cli.net, &files).await,
+        Cmd::Get { code, dir, yes } => get(&cli.net, &code, dir, yes).await,
         Cmd::Diag { seconds } => diag(&cli.net, seconds).await,
         Cmd::Infra { external } => infra(&cli.net, external).await,
     }
@@ -359,6 +374,137 @@ async fn send(net: &NetArgs, target: &str, files: &[PathBuf]) -> Result<()> {
         dt,
         human((total as f64 / dt) as u64)
     );
+    Ok(())
+}
+
+fn download_dir(dir: Option<PathBuf>) -> Result<PathBuf> {
+    match dir {
+        Some(d) => Ok(d),
+        None => directories::UserDirs::new()
+            .and_then(|u| u.download_dir().map(|d| d.join("LocalSendOnline")))
+            .context("specificare --dir"),
+    }
+}
+
+async fn share(net: &NetArgs, files: &[PathBuf]) -> Result<()> {
+    for f in files {
+        if !f.is_file() {
+            bail!("{} non è un file", f.display());
+        }
+    }
+    let node = start(net, Role::Device, true, vec![]).await?;
+    let mut control = node.control();
+    let mut pulls = control
+        .accept(config::PULL_PROTOCOL)
+        .expect("registered once");
+    eprintln!("connessione alla rete...");
+    let snap = node.wait_ready(true, Duration::from_secs(45)).await?;
+    if snap.reservations.is_empty() {
+        eprintln!(
+            "ATTENZIONE: nessun relay ottenuto, il codice potrebbe non funzionare fuori dalla LAN"
+        );
+    }
+    let code = rendezvous::generate_code();
+    let key = rendezvous::key_for_code(&code);
+    node.provide(key.clone()).await;
+    let expires = Instant::now() + config::CODE_TTL;
+    println!("{code}");
+    eprintln!("Codice: {code}  (valido 5 minuti). Chi riceve: lso get {code}");
+
+    use futures_lite::StreamExt as _;
+    loop {
+        let next = tokio::time::timeout_at(expires.into(), pulls.next()).await;
+        let Ok(Some((peer, stream))) = next else {
+            node.stop_providing(key).await;
+            bail!("codice scaduto senza che nessuno lo usasse");
+        };
+        let Ok((req, responder)) = transfer::read_pull(stream).await else {
+            continue;
+        };
+        let valid = rendezvous::normalize_code(&req.code).as_deref() == Some(code.as_str());
+        responder.answer(valid).await.ok();
+        if !valid {
+            continue;
+        }
+        node.stop_providing(key).await;
+        eprintln!("{} ({peer}) ha inserito il codice, invio...", req.name);
+        let started = Instant::now();
+        let total: u64 = files
+            .iter()
+            .map(|f| f.metadata().map(|m| m.len()).unwrap_or(0))
+            .sum();
+        let mut bars = Bars::default();
+        let res =
+            transfer::send_files(&mut control, peer, files, &hostname(), |p| bars.update(p)).await;
+        bars.finish();
+        res?;
+        let dt = started.elapsed().as_secs_f64();
+        eprintln!(
+            "inviato e verificato: {} in {:.1}s ({}/s)",
+            human(total),
+            dt,
+            human((total as f64 / dt) as u64)
+        );
+        return Ok(());
+    }
+}
+
+async fn get(net: &NetArgs, code: &str, dir: Option<PathBuf>, yes: bool) -> Result<()> {
+    let code = rendezvous::normalize_code(code).context("codice non valido (formato XXXX-XXXX)")?;
+    let dest = download_dir(dir)?;
+    let node = start(net, Role::Device, true, vec![]).await?;
+    let mut control = node.control();
+    let mut incoming = control.accept(TRANSFER_PROTOCOL).expect("registered once");
+    eprintln!("connessione alla rete...");
+    node.wait_ready(false, Duration::from_secs(20)).await?;
+    eprintln!("ricerca del dispositivo con il codice {code}...");
+    let peer = node
+        .find_provider(rendezvous::key_for_code(&code), Duration::from_secs(90))
+        .await
+        .context("nessun dispositivo trovato con questo codice (scaduto o sbagliato?)")?;
+    let conn = match node
+        .connect_direct(ticket::Ticket {
+            peer,
+            addrs: vec![],
+        })
+        .await
+    {
+        Ok(c) => c,
+        Err(f) => {
+            eprintln!(
+                "\nIMPOSSIBILE stabilire una connessione diretta.\n{}",
+                f.explain()
+            );
+            std::process::exit(2);
+        }
+    };
+    eprintln!("connessione DIRETTA via {}", conn.addr);
+    transfer::request_pull(&mut control, peer, &code, &hostname()).await?;
+
+    use futures_lite::StreamExt as _;
+    let (from, stream) = tokio::time::timeout(Duration::from_secs(60), incoming.next())
+        .await
+        .context("il mittente non ha avviato l'invio")?
+        .context("chiuso")?;
+    anyhow::ensure!(from == peer, "offerta da un dispositivo inatteso");
+    let (offer, t) = transfer::read_offer(stream).await?;
+    eprintln!("{} vuole inviarti:", offer.from);
+    for f in &offer.files {
+        eprintln!("  {}  ({})", f.name, human(f.size));
+    }
+    if !(yes || ask("Accettare? [s/N] ").await) {
+        t.reject("rifiutato dall'utente").await.ok();
+        return Ok(());
+    }
+    let mut bars = Bars::default();
+    let paths = t
+        .accept_as(peer, &dest, Some(&hostname()), |p| bars.update(p))
+        .await;
+    bars.finish();
+    for p in paths? {
+        println!("{}", p.display());
+    }
+    eprintln!("ricevuto e verificato");
     Ok(())
 }
 

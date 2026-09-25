@@ -7,6 +7,12 @@ use libp2p::{Multiaddr, StreamProtocol};
 /// Application protocol carried on direct connections only (data plane).
 pub const TRANSFER_PROTOCOL: StreamProtocol = StreamProtocol::new("/lso/transfer/1.0.0");
 
+/// Short-code handshake (receiver asks the sharer to send), direct only too.
+pub const PULL_PROTOCOL: StreamProtocol = StreamProtocol::new("/lso/pull/1.0.0");
+
+/// How long a short code stays valid.
+pub const CODE_TTL: Duration = Duration::from_secs(5 * 60);
+
 /// Agent string announced through identify.
 pub const AGENT_VERSION: &str = concat!("lso/", env!("CARGO_PKG_VERSION"));
 

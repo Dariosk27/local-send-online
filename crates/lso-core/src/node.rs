@@ -246,6 +246,21 @@ enum Command {
         reply: oneshot::Sender<Result<DirectConnection, ConnectFailure>>,
     },
     IsDirect(PeerId, oneshot::Sender<Option<Multiaddr>>),
+    Provide(kad::RecordKey),
+    Unprovide(kad::RecordKey),
+    FindProvider {
+        key: kad::RecordKey,
+        timeout: Duration,
+        reply: oneshot::Sender<Option<PeerId>>,
+    },
+}
+
+struct KeyLookup {
+    key: kad::RecordKey,
+    query: Option<kad::QueryId>,
+    deadline: Instant,
+    retry_at: Option<Instant>,
+    reply: oneshot::Sender<Option<PeerId>>,
 }
 
 #[derive(Clone)]
@@ -316,6 +331,32 @@ impl Node {
     pub async fn direct_addr(&self, peer: PeerId) -> Option<Multiaddr> {
         let (tx, rx) = oneshot::channel();
         self.cmd.send(Command::IsDirect(peer, tx)).await.ok()?;
+        rx.await.ok().flatten()
+    }
+
+    /// Announces `key` in the DHT (with our current relay addresses) until
+    /// [`Node::stop_providing`]. Used for short codes.
+    pub async fn provide(&self, key: kad::RecordKey) {
+        let _ = self.cmd.send(Command::Provide(key)).await;
+    }
+
+    pub async fn stop_providing(&self, key: kad::RecordKey) {
+        let _ = self.cmd.send(Command::Unprovide(key)).await;
+    }
+
+    /// Looks up who provides `key` (retrying until `timeout`, since a fresh
+    /// announcement takes a few seconds to land). The provider is dialed as
+    /// soon as it is found, while its addresses are known.
+    pub async fn find_provider(&self, key: kad::RecordKey, timeout: Duration) -> Option<PeerId> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd
+            .send(Command::FindProvider {
+                key,
+                timeout,
+                reply: tx,
+            })
+            .await
+            .ok()?;
         rx.await.ok().flatten()
     }
 
@@ -449,6 +490,10 @@ struct State {
 
     pending: Vec<PendingConnect>,
     holepunched: HashSet<PeerId>,
+
+    /// Extra keys we announce (short codes), and lookups in progress.
+    extra_keys: HashSet<kad::RecordKey>,
+    key_lookups: Vec<KeyLookup>,
 }
 
 impl State {
@@ -470,6 +515,8 @@ impl State {
             announce_query: None,
             pending: vec![],
             holepunched: HashSet::new(),
+            extra_keys: HashSet::new(),
+            key_lookups: vec![],
         }
     }
 
@@ -599,6 +646,31 @@ fn on_command(swarm: &mut Swarm<Behaviour>, st: &mut State, cmd: Command) {
         Command::Snapshot(reply) => {
             let _ = reply.send(st.snapshot(swarm));
         }
+        Command::Provide(key) => {
+            if !st.confirmed_reservations().is_empty() {
+                let _ = swarm.behaviour_mut().kad.start_providing(key.clone());
+            }
+            // Also (re)announced with our own record whenever addresses change.
+            st.extra_keys.insert(key);
+        }
+        Command::Unprovide(key) => {
+            swarm.behaviour_mut().kad.stop_providing(&key);
+            st.extra_keys.remove(&key);
+        }
+        Command::FindProvider {
+            key,
+            timeout,
+            reply,
+        } => {
+            let query = Some(swarm.behaviour_mut().kad.get_providers(key.clone()));
+            st.key_lookups.push(KeyLookup {
+                key,
+                query,
+                deadline: Instant::now() + timeout,
+                retry_at: None,
+                reply,
+            });
+        }
         Command::IsDirect(peer, reply) => {
             let _ = reply.send(st.direct_addr(&peer));
         }
@@ -658,6 +730,22 @@ fn maintain(swarm: &mut Swarm<Behaviour>, st: &mut State) {
         let _ = p.reply.send(Err(p.failure));
     }
 
+    // Short-code lookups: retry until found or expired.
+    let mut i = 0;
+    while i < st.key_lookups.len() {
+        let l = &mut st.key_lookups[i];
+        if l.deadline <= now {
+            let l = st.key_lookups.remove(i);
+            let _ = l.reply.send(None);
+            continue;
+        }
+        if l.retry_at.is_some_and(|t| t <= now) {
+            l.retry_at = None;
+            l.query = Some(swarm.behaviour_mut().kad.get_providers(l.key.clone()));
+        }
+        i += 1;
+    }
+
     if !st.reachable {
         return;
     }
@@ -705,6 +793,9 @@ fn maintain(swarm: &mut Swarm<Behaviour>, st: &mut State) {
                 st.announce_query = Some(q);
                 st.announce_due = false;
                 st.last_announce = Some(now);
+                for key in st.extra_keys.clone() {
+                    let _ = swarm.behaviour_mut().kad.start_providing(key);
+                }
             }
             Err(e) => tracing::warn!("cannot announce: {e}"),
         }
@@ -887,6 +978,39 @@ fn on_behaviour_event(swarm: &mut Swarm<Behaviour>, st: &mut State, ev: Behaviou
         }
         BehaviourEvent::Kad(kad::Event::OutboundQueryProgressed { id, result, .. }) => match result
         {
+            kad::QueryResult::GetProviders(Ok(kad::GetProvidersOk::FoundProviders {
+                providers,
+                ..
+            })) if st.key_lookups.iter().any(|l| l.query == Some(id)) => {
+                let me = st.me;
+                if let Some(peer) = providers.into_iter().find(|p| *p != me) {
+                    let pos = st
+                        .key_lookups
+                        .iter()
+                        .position(|l| l.query == Some(id))
+                        .unwrap();
+                    let l = st.key_lookups.remove(pos);
+                    // Dial now: the provider's addresses are only known while
+                    // the query runs.
+                    let _ = swarm.dial(
+                        DialOpts::peer_id(peer)
+                            .condition(PeerCondition::DisconnectedAndNotDialing)
+                            .build(),
+                    );
+                    let _ = l.reply.send(Some(peer));
+                }
+            }
+            kad::QueryResult::GetProviders(Ok(
+                kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. },
+            ))
+            | kad::QueryResult::GetProviders(Err(_))
+                if st.key_lookups.iter().any(|l| l.query == Some(id)) =>
+            {
+                if let Some(l) = st.key_lookups.iter_mut().find(|l| l.query == Some(id)) {
+                    l.query = None;
+                    l.retry_at = Some(Instant::now() + Duration::from_secs(3));
+                }
+            }
             kad::QueryResult::GetProviders(Ok(kad::GetProvidersOk::FoundProviders {
                 providers,
                 ..

@@ -7,141 +7,209 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="titlebar" data-tauri-drag-region>
-    <div class="brand" data-tauri-drag-region>
-      <img src="icon.png" alt="" class="brand-icon">
-      <span data-tauri-drag-region>Local Send Online</span>
-    </div>
-    <button class="status-pill" id="statusPill" title="Dettagli della rete">
-      <span class="dot"></span><span id="statusText">Connessione…</span>
+  <header class="topbar" data-tauri-drag-region>
+    <button class="icon-btn back" id="backBtn" aria-label="Indietro" hidden>
+      <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <div class="top-title" id="topTitle" data-tauri-drag-region></div>
+    <button class="icon-btn gear" id="gearBtn" aria-label="Impostazioni">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
     </button>
   </header>
 
-  <main class="layout">
-    <!-- RICEVI -->
-    <section class="card receive">
-      <div class="card-head">
-        <h2>Ricevi</h2>
-        <span class="muted small">Questo dispositivo</span>
+  <main>
+    <!-- 1 · HOME -->
+    <section class="screen" data-screen="home">
+      <div class="hero">
+        <div class="hero-icon"><img src="icon.png" alt=""></div>
+        <h1>Local Send Online</h1>
+        <p class="muted">Invia e ricevi file direttamente da un altro dispositivo.<br>Nessun server centrale.</p>
       </div>
-
-      <div class="device">
-        <div class="avatar big" id="myAvatar">?</div>
-        <div class="device-info">
-          <div class="device-name">
-            <input id="deviceName" spellcheck="false" aria-label="Nome del dispositivo">
-            <svg class="pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/></svg>
-          </div>
-          <div class="muted small" id="reachText">Avvio in corso…</div>
-        </div>
-      </div>
-
-      <div class="qr-wrap">
-        <div class="qr" id="qr"><div class="qr-placeholder"><div class="spinner"></div></div></div>
-      </div>
-
-      <div class="code-row">
-        <div class="code" id="codeText">—</div>
-        <button class="btn primary" id="copyCode" disabled>
-          <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
-          Copia codice
+      <div class="actions">
+        <button class="btn primary big" id="goSend">
+          <svg viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>Invia file
+        </button>
+        <button class="btn soft big" id="goReceive">
+          <svg viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>Ricevi file
         </button>
       </div>
-      <p class="hint">Manda questo codice a chi deve inviarti file. Ogni invio chiede la tua conferma, e i file viaggiano <b>direttamente</b> tra i due dispositivi, senza cloud.</p>
 
-      <button class="folder" id="openFolder">
-        <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-        <span id="folderText">Download/LocalSendOnline</span>
-        <span class="change" id="changeFolder">Cambia</span>
-      </button>
+      <div class="block" id="activeBlock" hidden>
+        <div class="block-title">In corso</div>
+        <div class="list" id="activeList"></div>
+      </div>
+
+      <div class="block" id="recentBlock" hidden>
+        <div class="block-title">Dispositivi recenti</div>
+        <div class="list" id="recentList"></div>
+      </div>
+
+      <footer class="status-row">
+        <button class="status" id="statusBtn"><span class="dot" id="statusDot"></span><span id="statusText">Connessione…</span></button>
+        <button class="icon-btn small" id="infoBtn" aria-label="Stato della rete">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+        </button>
+      </footer>
     </section>
 
-    <div class="right">
-      <!-- INVIA -->
-      <section class="card send">
-        <div class="card-head">
-          <h2>Invia</h2>
+    <!-- 2 · SELEZIONE FILE -->
+    <section class="screen" data-screen="files" data-title="Invia file">
+      <div class="drop" id="drop">
+        <div class="drop-empty" id="dropEmpty">
+          <div class="drop-icon"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></div>
+          <b>Trascina qui i file</b>
+          <span class="muted small">oppure</span>
+          <button class="btn soft" id="pickFiles">Scegli dal computer</button>
         </div>
+        <div class="file-list" id="fileList" hidden></div>
+      </div>
+      <button class="btn soft wide" id="addMore" hidden>
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Aggiungi altri file
+      </button>
+      <div class="to-device" id="toDevice" hidden></div>
+      <button class="btn primary wide big" id="continueBtn" disabled>Continua</button>
+    </section>
 
-        <div class="drop" id="drop">
-          <div class="drop-empty" id="dropEmpty">
-            <div class="drop-icon">
-              <svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-            </div>
-            <div><b>Trascina qui i file</b></div>
-            <div class="muted small">oppure <button class="link" id="pickFiles">scegli dal computer</button></div>
-          </div>
-          <div class="files" id="files" hidden></div>
+    <!-- 3 · CONNESSIONE -->
+    <section class="screen" data-screen="connect" data-title="Connetti a un dispositivo">
+      <div class="segmented" role="tablist">
+        <button class="seg active" data-tab="code">Codice</button>
+        <button class="seg" data-tab="recent">Dispositivi recenti</button>
+      </div>
+      <div class="tab" data-tab-panel="code">
+        <div class="qr" id="qr"><div class="spinner"></div></div>
+        <div class="code" id="codeText">— — — —</div>
+        <button class="btn soft" id="copyCode">
+          <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Copia codice
+        </button>
+        <p class="muted center">Condividi questo codice con l'altro dispositivo:<br>lo inserisce in <b>Ricevi file</b>.</p>
+        <div class="waiting" id="codeWaiting"><div class="spinner small"></div><span>In attesa che venga inserito…</span></div>
+        <div class="expiry" id="expiry">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span id="expiryText">Il codice scade tra 5:00</span>
         </div>
+        <button class="btn primary" id="newCode" hidden>Genera un nuovo codice</button>
+      </div>
+      <div class="tab" data-tab-panel="recent" hidden>
+        <div class="list" id="connectRecent"></div>
+        <p class="muted center small" id="noRecent">Nessun dispositivo recente: usa il codice la prima volta, poi lo ritroverai qui.</p>
+      </div>
+    </section>
 
-        <div class="to">
-          <label class="label" for="target">Destinatario</label>
-          <div class="contacts" id="contacts"></div>
-          <div class="target-row">
-            <input id="target" placeholder="Incolla il codice del destinatario (lso1…)" spellcheck="false" autocomplete="off">
-            <button class="btn send-btn" id="sendBtn" disabled>
-              <svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2-7z"/></svg>
-              Invia
-            </button>
+    <!-- 4 · TRASFERIMENTO -->
+    <section class="screen" data-screen="transfer">
+      <div id="tProgress">
+        <div class="file-head">
+          <div class="file-tile" id="tTile"></div>
+          <div class="file-head-text">
+            <div class="file-name" id="tName"></div>
+            <div class="muted small" id="tSub"></div>
           </div>
         </div>
-      </section>
+        <div class="progress-row">
+          <div class="bar"><i id="tBar"></i></div>
+          <span class="pct" id="tPct">0%</span>
+        </div>
+        <dl class="stats">
+          <dt id="tDoneLabel">Trasferiti</dt><dd id="tDone">—</dd>
+          <dt>Velocità</dt><dd id="tSpeed">—</dd>
+          <dt>Tempo rimanente</dt><dd id="tEta">—</dd>
+        </dl>
+        <ul class="steps" id="tSteps"></ul>
+        <button class="btn soft wide" id="cancelBtn">Annulla</button>
+      </div>
+      <div class="result" id="tResult" hidden>
+        <div class="result-icon" id="rIcon"></div>
+        <h2 id="rTitle"></h2>
+        <p class="muted" id="rSub"></p>
+        <div class="result-msg" id="rMsg" hidden></div>
+        <details class="tech" id="rDetails" hidden><summary>Dettagli tecnici</summary><pre id="rDetailText"></pre></details>
+        <div class="result-actions">
+          <button class="btn soft" id="openFolder" hidden>Apri cartella</button>
+          <button class="btn primary" id="closeResult">Chiudi</button>
+        </div>
+      </div>
+    </section>
 
-      <!-- ATTIVITÀ -->
-      <section class="card activity">
-        <div class="card-head">
-          <h2>Attività</h2>
+    <!-- 5 · RICEVI -->
+    <section class="screen" data-screen="receive" data-title="Ricevi file">
+      <div class="receive-hero">
+        <div class="round-icon"><svg viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 20h16"/></svg></div>
+        <p class="muted center">Inserisci il codice che ti ha dato chi invia.</p>
+      </div>
+      <input class="code-input" id="codeInput" placeholder="XXXX-XXXX" maxlength="9" autocomplete="off" spellcheck="false" autocapitalize="characters">
+      <button class="btn primary wide big" id="receiveBtn" disabled>Ricevi</button>
+      <ul class="steps compact" id="codeSteps" hidden></ul>
+      <div class="result-msg" id="codeError" hidden></div>
+      <details class="tech" id="codeDetails" hidden><summary>Dettagli tecnici</summary><pre id="codeDetailText"></pre></details>
+      <div class="note">
+        <svg viewBox="0 0 24 24"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/></svg>
+        <span>Senza codice ricevi dai <b>dispositivi recenti</b>: basta tenere l'app aperta, ogni invio ti chiede conferma.</span>
+      </div>
+    </section>
+
+    <!-- 6 · IMPOSTAZIONI -->
+    <section class="screen" data-screen="settings" data-title="Impostazioni">
+      <div class="group">
+        <div class="group-title">Generale</div>
+        <label class="field">
+          <span>Nome dispositivo</span>
+          <input id="setName" spellcheck="false">
+        </label>
+        <div class="row">
+          <div><div>Cartella di ricezione</div><div class="muted small ellipsis" id="setFolder"></div></div>
+          <button class="btn soft small-btn" id="setFolderBtn">Cambia</button>
         </div>
-        <div class="transfers" id="transfers">
-          <div class="empty" id="emptyActivity">
-            <svg viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H9M17 7v8"/></svg>
-            <span>Nessun trasferimento per ora</span>
-          </div>
-        </div>
-      </section>
-    </div>
+        <label class="row toggle-row">
+          <span>Mostra notifiche</span>
+          <input type="checkbox" class="toggle" id="setNotify">
+        </label>
+        <label class="row toggle-row">
+          <span>Accetta automaticamente dai dispositivi recenti</span>
+          <input type="checkbox" class="toggle" id="setAuto">
+        </label>
+      </div>
+
+      <div class="group">
+        <div class="group-title">Rete</div>
+        <div class="verdict" id="netVerdict"></div>
+        <dl class="net">
+          <dt>Relay di segnalazione</dt><dd id="netRelays">—</dd>
+          <dt>Nodi della rete</dt><dd id="netPeers">—</dd>
+          <dt>Indirizzo pubblico</dt><dd id="netObserved">—</dd>
+        </dl>
+        <ul class="hints" id="netHints"></ul>
+      </div>
+
+      <div class="group">
+        <div class="group-title">Come funziona</div>
+        <ul class="checks">
+          <li>I file vanno direttamente da un dispositivo all'altro, mai su un server</li>
+          <li>Usa solo la banda delle vostre due linee</li>
+          <li>Funziona su reti diverse (attraversamento del NAT)</li>
+          <li>Crittografia end-to-end e verifica di ogni file</li>
+        </ul>
+        <button class="link" id="copyTicket">Copia il mio indirizzo permanente</button>
+      </div>
+    </section>
   </main>
 
-  <!-- Offerta in arrivo -->
-  <div class="overlay" id="offerOverlay" hidden>
-    <div class="sheet" role="dialog" aria-modal="true">
-      <div class="sheet-head">
-        <div class="avatar big" id="offerAvatar">?</div>
+  <!-- Richiesta in arrivo -->
+  <div class="overlay" id="offer" hidden>
+    <div class="dark-card" role="dialog" aria-modal="true">
+      <div class="dark-title">Richiesta di trasferimento</div>
+      <div class="offer-who">
+        <div class="avatar" id="offerAvatar"></div>
         <div>
-          <div class="sheet-title"><span id="offerFrom"></span> vuole inviarti</div>
-          <div class="muted small" id="offerSummary"></div>
+          <div class="offer-name" id="offerFrom"></div>
+          <div class="offer-sub">vuole condividere dei file con te.</div>
+          <div class="offer-size" id="offerSize"></div>
         </div>
       </div>
-      <div class="badge" id="offerKnown" hidden>Contatto già noto</div>
       <ul class="offer-files" id="offerFiles"></ul>
-      <p class="muted small">Il trasferimento avviene su una connessione diretta e cifrata. Ogni file viene verificato all'arrivo.</p>
-      <div class="sheet-actions">
-        <button class="btn ghost" id="offerReject">Rifiuta</button>
+      <div class="offer-actions">
+        <button class="btn dark" id="offerReject">Rifiuta</button>
         <button class="btn primary" id="offerAccept">Accetta</button>
       </div>
-    </div>
-  </div>
-
-  <!-- Dettagli rete -->
-  <div class="overlay" id="netOverlay" hidden>
-    <div class="sheet wide" role="dialog" aria-modal="true">
-      <div class="sheet-head">
-        <div>
-          <div class="sheet-title">Stato della rete</div>
-          <div class="muted small">Cosa vede Internet di questo dispositivo</div>
-        </div>
-        <button class="icon-btn" id="netClose" aria-label="Chiudi">
-          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
-        </button>
-      </div>
-      <div class="net-verdict" id="netVerdict"></div>
-      <dl class="net-grid">
-        <dt>Relay di segnalazione</dt><dd id="netRelays">—</dd>
-        <dt>Nodi della rete conosciuti</dt><dd id="netPeers">—</dd>
-        <dt>Indirizzo pubblico</dt><dd id="netObserved">—</dd>
-        <dt>Identificativo (PeerId)</dt><dd class="mono" id="netPeerId">—</dd>
-      </dl>
-      <ul class="net-hints" id="netHints"></ul>
     </div>
   </div>
 

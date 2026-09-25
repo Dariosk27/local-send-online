@@ -95,7 +95,23 @@ run_resume() {
   record "resume after interruption (cone/cone)" direct "$got" "-" "partial=$part B; $resumed"
 }
 
-ALL=(cone-ticket cone-dht cone-sym sym-sym sym-forward resume)
+run_code() {
+  BOOT=(); setup cone cone
+  "$NL" exec hostA "$B" --identity "$W/a.key" --no-default-bootstrap "${BOOT[@]}" share "$W/a/file.bin" \
+    >"$W/share.out" 2>"$W/share.err" &
+  for _ in $(seq 60); do grep -q -- '-' "$W/share.out" 2>/dev/null && break; sleep 1; done
+  local code; code=$(head -1 "$W/share.out")
+  local r0; r0=$(relay_bytes)
+  mkdir -p "$W/g"
+  timeout 150 "$NL" exec hostB "$B" --identity "$W/g.key" --no-default-bootstrap "${BOOT[@]}" \
+    get "$code" --dir "$W/g" --yes >"$W/send.log" 2>&1
+  local rc=$? got=nodirect
+  cmp -s "$W/a/file.bin" "$W/g/file.bin" && [ $rc = 0 ] && got=direct
+  record "short code $code (cone/cone)" direct "$got" "$(( $(relay_bytes) - r0 ))" \
+    "$(grep -o 'connessione DIRETTA via [^ ]*' "$W/send.log" | head -1)"
+}
+
+ALL=(cone-ticket cone-dht cone-sym sym-sym sym-forward resume code)
 for s in "${@:-${ALL[@]}}"; do
   case $s in
     cone-ticket) run_simple "cone/cone, ticket" cone cone ticket direct ;;
@@ -104,6 +120,7 @@ for s in "${@:-${ALL[@]}}"; do
     sym-sym)     run_simple "symmetric/symmetric (impossible)" symmetric symmetric ticket nodirect ;;
     sym-forward) run_simple "symmetric/port-forwarded receiver" symmetric forward ticket direct 5000 ;;
     resume)      run_resume ;;
+    code)        run_code ;;
   esac
 done
 echo; echo "================ summary"

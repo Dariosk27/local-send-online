@@ -31,7 +31,8 @@ use tokio::{
 };
 use tokio_util::compat::FuturesAsyncReadCompatExt;
 
-use crate::config::TRANSFER_PROTOCOL;
+use crate::config::{PULL_PROTOCOL, TRANSFER_PROTOCOL};
+use libp2p::StreamProtocol;
 
 const MAGIC: &[u8; 4] = b"LSO1";
 const CHUNK: usize = 256 * 1024;
@@ -131,7 +132,9 @@ pub async fn send_files_named(
         from: from.to_string(),
     };
 
-    let mut s = open_with_retry(control, peer).await?.compat();
+    let mut s = open_with_retry(control, peer, TRANSFER_PROTOCOL)
+        .await?
+        .compat();
 
     s.write_all(MAGIC).await?;
     write_json(&mut s, &offer).await?;
@@ -204,7 +207,11 @@ pub async fn send_files_named(
 /// QUIC, one per direction) and the redundant ones get closed; a stream
 /// requested on a connection that is being closed fails. Nothing has been
 /// sent yet at that point, so retrying is safe.
-async fn open_with_retry(control: &mut libp2p_stream::Control, peer: PeerId) -> Result<Stream> {
+async fn open_with_retry(
+    control: &mut libp2p_stream::Control,
+    peer: PeerId,
+    protocol: StreamProtocol,
+) -> Result<Stream> {
     let mut last = None;
     for attempt in 0..4 {
         if attempt > 0 {
@@ -212,7 +219,7 @@ async fn open_with_retry(control: &mut libp2p_stream::Control, peer: PeerId) -> 
         }
         match tokio::time::timeout(
             std::time::Duration::from_secs(20),
-            control.open_stream(peer, TRANSFER_PROTOCOL),
+            control.open_stream(peer, protocol.clone()),
         )
         .await
         {
@@ -228,6 +235,71 @@ async fn open_with_retry(control: &mut libp2p_stream::Control, peer: PeerId) -> 
         "cannot open transfer stream: {}",
         last.unwrap_or_default()
     ))
+}
+
+// ------------------------------------------------------------ short codes
+//
+// `/lso/pull/1.0.0`, on a direct connection:
+//   R->S  "LSOP" | u32 len | JSON {code, name}
+//   S->R  1 byte: 1 = code valid, the sharer now opens a normal transfer
+//         stream towards R; 0 = unknown or expired code.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PullRequest {
+    pub code: String,
+    pub name: String,
+}
+
+/// Receiver side: "I have your code, send me the files".
+pub async fn request_pull(
+    control: &mut libp2p_stream::Control,
+    peer: PeerId,
+    code: &str,
+    name: &str,
+) -> Result<()> {
+    let mut s = open_with_retry(control, peer, PULL_PROTOCOL)
+        .await?
+        .compat();
+    s.write_all(b"LSOP").await?;
+    write_json(
+        &mut s,
+        &PullRequest {
+            code: code.into(),
+            name: name.into(),
+        },
+    )
+    .await?;
+    s.flush().await?;
+    let ok = s
+        .read_u8()
+        .await
+        .context("no answer from the sharing device")?;
+    s.shutdown().await.ok();
+    ensure!(ok == 1, "codice scaduto o già usato");
+    Ok(())
+}
+
+pub struct PullResponder {
+    s: tokio_util::compat::Compat<Stream>,
+}
+
+impl PullResponder {
+    pub async fn answer(mut self, ok: bool) -> Result<()> {
+        self.s.write_u8(ok as u8).await?;
+        self.s.flush().await?;
+        self.s.shutdown().await.ok();
+        Ok(())
+    }
+}
+
+/// Sharer side: reads a pull request.
+pub async fn read_pull(stream: Stream) -> Result<(PullRequest, PullResponder)> {
+    let mut s = stream.compat();
+    let mut magic = [0u8; 4];
+    s.read_exact(&mut magic).await?;
+    ensure!(&magic == b"LSOP", "not a lso pull request");
+    let req: PullRequest = read_json(&mut s).await?;
+    Ok((req, PullResponder { s }))
 }
 
 /// Reads the offer at the start of an inbound transfer stream.
