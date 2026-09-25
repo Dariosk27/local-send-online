@@ -51,6 +51,8 @@ jobs:
   # the jobs do not fail the workflow.
   # Verbose control-plane log against the real public IPFS network.
   internet-diag:
+    # Costly (macOS minutes count 10x): run only on manual dispatch.
+    if: github.event_name == 'workflow_dispatch'
     needs: build
     strategy:
       fail-fast: false
@@ -68,6 +70,8 @@ jobs:
           RUST_LOG: info,libp2p_swarm=debug,libp2p_identify=debug,libp2p_dns=debug,libp2p_kad=info,libp2p_relay=debug
 
   internet-mac-receiver:
+    # Costly (macOS minutes count 10x): run only on manual dispatch.
+    if: github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: macos-latest
     continue-on-error: true
@@ -88,6 +92,8 @@ jobs:
           cmp expected.bin out/expected.bin
 
   internet-windows-sender:
+    # Costly (macOS minutes count 10x): run only on manual dispatch.
+    if: github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: windows-latest
     continue-on-error: true
