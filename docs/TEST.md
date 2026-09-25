@@ -82,6 +82,30 @@ destinazione). Per questo quei job sono `continue-on-error`: un fallimento con
 la diagnosi "hole punching non riuscito" è un risultato legittimo. Il job
 `diag` stampa il tipo di NAT osservato su ciascun runner.
 
+### Risultato reale (CI, 25/09/2026)
+
+Primo tentativo: nessuna connessione ai bootstrap IPFS. **Bug**: i nodi
+bootstrap hanno chiavi RSA e il supporto RSA non era compilato (il
+laboratorio non poteva accorgersene: usa solo chiavi Ed25519). Corretto.
+
+Dopo la correzione, sulla rete pubblica IPFS reale:
+
+- ✅ bootstrap, decine di peer DHT, indirizzo pubblico confermato da decine
+  di nodi, prenotazioni relay su nodi IPFS pubblici;
+- ✅ il mittente Windows trova il ricevente macOS **dal solo PeerId** tramite
+  la DHT e apre il circuito relay di segnalazione;
+- ❌ hole punching fallito, **per il motivo previsto**: il runner macOS è
+  dietro un NAT simmetrico (lo stesso socket appare all'esterno su porte
+  diverse: 33703, 33712, 33842, 35004, …; rilevato e segnalato da `diag`),
+  mentre il runner Windows su Azure ha un NAT con porta costante. Simmetrico
+  contro port-restricted = caso impossibile della matrice in ANALISI §2.1.
+  Il programma ha mostrato la diagnosi corretta e non ha inviato nulla via
+  relay.
+
+Il control plane funziona quindi sull'Internet reale; il data plane diretto
+tra due reti "normali" va ancora verificato su reti domestiche (procedura
+sotto).
+
 ### A mano, tra due reti vere (procedura consigliata)
 
 Compila su ciascuna macchina (`cargo build --release`) oppure scarica gli

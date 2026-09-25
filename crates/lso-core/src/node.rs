@@ -478,10 +478,15 @@ impl State {
     }
 
     fn hint(&mut self, h: NatHint) {
-        if !self.hints.contains(&h) {
-            self.hints.push(h.clone());
-            self.emit(NodeEvent::NatHint(h));
+        // One hint per kind: the symmetric-NAT port list keeps growing as
+        // more peers observe us, which is not news for the user.
+        let same_kind = |x: &NatHint| std::mem::discriminant(x) == std::mem::discriminant(&h);
+        if let Some(existing) = self.hints.iter_mut().find(|x| same_kind(x)) {
+            *existing = h;
+            return;
         }
+        self.hints.push(h.clone());
+        self.emit(NodeEvent::NatHint(h));
     }
 
     fn direct_addr(&self, peer: &PeerId) -> Option<Multiaddr> {
