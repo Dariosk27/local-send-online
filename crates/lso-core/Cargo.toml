@@ -9,7 +9,9 @@ license.workspace = true
 libp2p = { version = "0.57", features = [
     "tokio", "quic", "tcp", "noise", "yamux", "dns",
     "identify", "kad", "relay", "dcutr", "ping", "upnp", "mdns",
-    "macros", "ed25519", "serde",
+    "macros", "serde",
+    # Every key type: the public IPFS bootstrap nodes (Qm… PeerIds) use RSA.
+    "ed25519", "rsa", "ecdsa", "secp256k1",
 ] }
 libp2p-stream = "0.5.0-alpha"
 tokio = { version = "1", features = ["full"] }
