@@ -104,6 +104,8 @@ struct Status {
     /// Local UDP/TCP port (for port forwarding on the home router).
     port: Option<u16>,
     ipv6: bool,
+    /// Backup relay: "none" | "connecting" | "active"
+    own_relay: &'static str,
 }
 
 #[derive(Serialize, Clone)]
@@ -309,6 +311,11 @@ async fn status(app: State<'_, Arc<App>>) -> Result<Status, String> {
                 _ => None,
             })
         }),
+        own_relay: match (s.own_relay_configured, s.own_relay_active) {
+            (false, _) => "none",
+            (true, false) => "connecting",
+            (true, true) => "active",
+        },
         ipv6: s
             .external_addrs
             .iter()
@@ -732,6 +739,9 @@ fn friendly_failure(f: &ConnectFailure) -> String {
 
 fn describe_via(addr: &Multiaddr) -> String {
     let s = addr.to_string();
+    if s.contains("p2p-circuit") {
+        return "tramite il tuo relay, cifrato".to_string();
+    }
     let transport = if s.contains("quic") { "QUIC" } else { "TCP" };
     let lan = s.starts_with("/ip4/192.168.")
         || s.starts_with("/ip4/10.")
@@ -984,6 +994,7 @@ fn main() {
                 enable_mdns: true,
                 enable_upnp: true,
                 external_addrs: vec![],
+                fallback_relays: config::fallback_relays(),
             }))?;
 
             let app = Arc::new(App {
@@ -1009,6 +1020,7 @@ fn main() {
             // otherwise the person sharing a code sees nothing at all.
             let mut events = app.node.events();
             let app_ev = app.clone();
+            let has_own_relay = !config::fallback_relays().is_empty();
             tauri::async_runtime::spawn(async move {
                 while let Ok(ev) = events.recv().await {
                     let peer_event = match &ev {
@@ -1027,6 +1039,11 @@ fn main() {
                                 name: app_ev.contact_name(&peer),
                                 kind,
                                 message: (kind == "failed").then(|| {
+                                    if has_own_relay {
+                                        return "Collegamento diretto non possibile tra le vostre reti: \
+                                                il trasferimento passa dal tuo relay di riserva (cifrato)…"
+                                            .to_string();
+                                    }
                                     format!(
                                         "Un dispositivo ha inserito il codice, ma tra le vostre due reti il collegamento \
                                          diretto non è possibile (succede con le reti mobili 4G/5G). Rimedio: sul router \

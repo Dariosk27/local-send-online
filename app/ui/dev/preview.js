@@ -19,7 +19,7 @@
           case 'status': return {
             peer_id: '12D3KooWQkYGdSSkzv1e88rwHsxZ1yxLKDMe2e4BQGp3BcWd1Hwe', ticket: 'lso1…',
             state: 'online', reservations: 2, observed: ['/ip4/93.41.12.7/udp/51820/quic-v1'], dht_peers: 41,
-            hints: [], symmetric_nat: false, port: 47800, ipv6: true,
+            hints: [], symmetric_nat: false, port: 47800, ipv6: true, own_relay: 'active',
           };
           case 'contacts': return [
             { peer_id: 'a1', name: 'MacBook di Luca', last_seen: now - 3600 },

@@ -21,6 +21,7 @@ async fn node() -> Node {
         enable_mdns: false,
         enable_upnp: false,
         external_addrs: vec![],
+        fallback_relays: vec![],
     })
     .await
     .unwrap()

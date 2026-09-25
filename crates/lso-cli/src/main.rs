@@ -98,6 +98,14 @@ enum Cmd {
         #[arg(long, default_value_t = 25)]
         seconds: u64,
     },
+    /// Relay di riserva (server con IP pubblico): trasporta i dati, cifrati,
+    /// solo quando il collegamento diretto è impossibile. Senza limiti di
+    /// dimensione; non partecipa alla DHT pubblica.
+    Relay {
+        /// Indirizzo pubblico da annunciare (es. /ip4/1.2.3.4/udp/4001/quic-v1).
+        #[arg(long)]
+        external: Vec<Multiaddr>,
+    },
     /// Nodo di infrastruttura opzionale (IP pubblico): DHT server + relay di
     /// sola segnalazione. Non trasporta mai dati dei file.
     Infra {
@@ -129,7 +137,8 @@ async fn main() -> Result<()> {
         Cmd::Share { files } => share(&cli.net, &files).await,
         Cmd::Get { code, dir, yes } => get(&cli.net, &code, dir, yes).await,
         Cmd::Diag { seconds } => diag(&cli.net, seconds).await,
-        Cmd::Infra { external } => infra(&cli.net, external).await,
+        Cmd::Infra { external } => infra(&cli.net, external, Role::Infrastructure).await,
+        Cmd::Relay { external } => infra(&cli.net, external, Role::Relay).await,
     }
 }
 
@@ -172,6 +181,7 @@ async fn start(
         enable_mdns: !net.no_mdns && role == Role::Device,
         enable_upnp: !net.no_upnp && role == Role::Device,
         external_addrs: external,
+        fallback_relays: config::fallback_relays(),
     })
     .await?;
     spawn_event_printer(&node, net.verbose);
@@ -345,15 +355,19 @@ async fn send(net: &NetArgs, target: &str, files: &[PathBuf]) -> Result<()> {
             std::process::exit(2);
         }
     };
-    eprintln!(
-        "connessione DIRETTA stabilita via {}{}",
-        conn.addr,
-        if conn.hole_punched {
-            " (hole punching)"
-        } else {
-            ""
-        }
-    );
+    if conn.via_relay {
+        eprintln!("connessione diretta impossibile: uso il TUO relay di riserva (dati cifrati end-to-end) via {}", conn.addr);
+    } else {
+        eprintln!(
+            "connessione DIRETTA stabilita via {}{}",
+            conn.addr,
+            if conn.hole_punched {
+                " (hole punching)"
+            } else {
+                ""
+            }
+        );
+    }
 
     let total: u64 = files
         .iter()
@@ -478,7 +492,14 @@ async fn get(net: &NetArgs, code: &str, dir: Option<PathBuf>, yes: bool) -> Resu
             std::process::exit(2);
         }
     };
-    eprintln!("connessione DIRETTA via {}", conn.addr);
+    if conn.via_relay {
+        eprintln!(
+            "connessione tramite il TUO relay di riserva (cifrata) via {}",
+            conn.addr
+        );
+    } else {
+        eprintln!("connessione DIRETTA via {}", conn.addr);
+    }
     transfer::request_pull(&mut control, peer, &code, &hostname()).await?;
 
     use futures_lite::StreamExt as _;
@@ -545,11 +566,19 @@ async fn diag(net: &NetArgs, seconds: u64) -> Result<()> {
     Ok(())
 }
 
-async fn infra(net: &NetArgs, external: Vec<Multiaddr>) -> Result<()> {
-    let node = start(net, Role::Infrastructure, false, external).await?;
+async fn infra(net: &NetArgs, external: Vec<Multiaddr>, role: Role) -> Result<()> {
+    let node = start(net, role, false, external).await?;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let s = node.snapshot().await?;
-    println!("nodo infrastruttura {}", node.peer_id());
+    println!(
+        "{} {}",
+        if role == Role::Relay {
+            "relay di riserva"
+        } else {
+            "nodo infrastruttura"
+        },
+        node.peer_id()
+    );
     for a in s.listen_addrs.iter().chain(s.external_addrs.iter()) {
         println!("  {a}/p2p/{}", node.peer_id());
     }

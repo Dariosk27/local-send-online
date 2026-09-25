@@ -173,10 +173,22 @@ jobs:
           name: app-${{ matrix.os }}
           path: out/*
 
+  # Linux ARM64 CLI (Oracle Cloud "Always Free" servers are ARM): used by
+  # scripts/install-relay.sh.
+  linux-arm:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p lso-cli
+      - uses: actions/upload-artifact@v4
+        with: { name: lso-linux-aarch64, path: target/release/lso }
+
   # Test kit to hand to testers: Windows + Mac binaries, double-click
   # scripts, instructions. Published as an artifact and on the test-kit branch.
   kit:
-    needs: [build, mac-universal, desktop-app]
+    needs: [build, mac-universal, desktop-app, linux-arm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -186,6 +198,10 @@ jobs:
         with: { name: lso-windows-latest, path: win }
       - uses: actions/download-artifact@v4
         with: { name: lso-macos-universal, path: mac }
+      - uses: actions/download-artifact@v4
+        with: { name: lso-ubuntu-latest, path: linux-x86_64 }
+      - uses: actions/download-artifact@v4
+        with: { name: lso-linux-aarch64, path: linux-aarch64 }
       - uses: actions/download-artifact@v4
         with: { name: app-macos-latest, path: appmac }
       - uses: actions/download-artifact@v4
@@ -207,6 +223,8 @@ jobs:
         run: |
           mkdir pub && mv LocalSendOnline-test.zip pub/
           cp appmac/LocalSendOnline.dmg appwin/LocalSendOnline-Setup.exe pub/
+          cp linux-x86_64/lso pub/lso-linux-x86_64
+          cp linux-aarch64/lso pub/lso-linux-aarch64
           cd pub
           git init -q -b test-kit
           git config user.name "ci" && git config user.email "ci@users.noreply.github.com"

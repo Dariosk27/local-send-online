@@ -21,6 +21,7 @@ use std::{
 use anyhow::{Context, Result};
 use futures::StreamExt;
 use libp2p::{
+    core::ConnectedPoint,
     dcutr, identify,
     identity::Keypair,
     kad, mdns,
@@ -39,7 +40,7 @@ pub use libp2p::multiaddr::Protocol as MultiaddrProtocol;
 
 use crate::{
     config::{self, AGENT_VERSION},
-    direct_only::{is_relayed, DirectOnly},
+    direct_only::{is_relayed, relay_of, DirectOnly},
     rendezvous,
     ticket::{strip_peer, Ticket},
 };
@@ -51,6 +52,9 @@ pub enum Role {
     /// Optional publicly reachable helper (DHT server + relay for signalling).
     /// Anybody with a public IP can run one; nothing depends on a specific one.
     Infrastructure,
+    /// A relay we run ourselves as a data fallback (no DHT server, no limits
+    /// on circuit size/duration). Data through it stays end-to-end encrypted.
+    Relay,
 }
 
 pub struct NodeConfig {
@@ -65,6 +69,9 @@ pub struct NodeConfig {
     pub enable_upnp: bool,
     /// Addresses to announce as confirmed (infrastructure nodes on a public IP).
     pub external_addrs: Vec<Multiaddr>,
+    /// Our own relays (`…/p2p/<id>`): kept reserved and allowed to carry
+    /// file data when a direct connection is impossible. Empty = direct only.
+    pub fallback_relays: Vec<Multiaddr>,
 }
 
 #[derive(NetworkBehaviour)]
@@ -142,6 +149,9 @@ pub struct Snapshot {
     pub reservations: Vec<PeerId>,
     pub routing_peers: usize,
     pub hints: Vec<NatHint>,
+    /// Our own backup relay: configured / reservation active on it.
+    pub own_relay_configured: bool,
+    pub own_relay_active: bool,
 }
 
 impl Snapshot {
@@ -166,6 +176,8 @@ pub struct DirectConnection {
     pub addr: Multiaddr,
     /// True if we first had to go through a relay and upgraded via DCUtR.
     pub hole_punched: bool,
+    /// True if no direct path exists and data goes through our own relay.
+    pub via_relay: bool,
 }
 
 /// Why no direct connection could be established. The fields are facts
@@ -332,7 +344,8 @@ impl Node {
         Ok(rx.await?)
     }
 
-    /// Returns the direct address we are connected to `peer` on, if any.
+    /// The address data to `peer` would use: a direct connection, or else a
+    /// connection through one of our own trusted relays (circuit address).
     pub async fn direct_addr(&self, peer: PeerId) -> Option<Multiaddr> {
         let (tx, rx) = oneshot::channel();
         self.cmd.send(Command::IsDirect(peer, tx)).await.ok()?;
@@ -406,8 +419,19 @@ impl Behaviour {
     }
 }
 
+fn trusted_relays(cfg: &NodeConfig) -> HashSet<PeerId> {
+    cfg.fallback_relays
+        .iter()
+        .filter_map(|a| match a.iter().last() {
+            Some(Protocol::P2p(id)) => Some(id),
+            _ => None,
+        })
+        .collect()
+}
+
 fn build_swarm(cfg: &NodeConfig) -> Result<Swarm<Behaviour>> {
     let role = cfg.role;
+    let trusted = trusted_relays(cfg);
     let enable_mdns = cfg.enable_mdns;
     let enable_upnp = cfg.enable_upnp;
     let swarm = SwarmBuilder::with_existing_identity(cfg.keypair.clone())
@@ -431,7 +455,7 @@ fn build_swarm(cfg: &NodeConfig) -> Result<Swarm<Behaviour>> {
             // relay reservation would otherwise flip Kademlia to server mode
             // and pollute other nodes' routing tables with unreachable entries.
             kad.set_mode(Some(match role {
-                Role::Device => kad::Mode::Client,
+                Role::Device | Role::Relay => kad::Mode::Client,
                 Role::Infrastructure => kad::Mode::Server,
             }));
             let mdns = if enable_mdns {
@@ -441,10 +465,24 @@ fn build_swarm(cfg: &NodeConfig) -> Result<Swarm<Behaviour>> {
             };
             Ok(Behaviour {
                 relay_client,
-                relay_server: Toggle::from(
-                    (role == Role::Infrastructure)
-                        .then(|| relay::Behaviour::new(peer_id, relay::Config::default())),
-                ),
+                relay_server: Toggle::from(match role {
+                    Role::Device => None,
+                    // Public helpers: default limits (2 min, 128 KiB), enough
+                    // for signalling only.
+                    Role::Infrastructure => {
+                        Some(relay::Behaviour::new(peer_id, relay::Config::default()))
+                    }
+                    Role::Relay => Some(relay::Behaviour::new(
+                        peer_id,
+                        relay::Config {
+                            max_circuit_bytes: 0, // unlimited
+                            max_circuit_duration: Duration::from_secs(12 * 3600),
+                            max_circuits: 64,
+                            max_circuits_per_peer: 8,
+                            ..Default::default()
+                        },
+                    )),
+                }),
                 dcutr: dcutr::Behaviour::new(peer_id),
                 identify: identify::Behaviour::new(
                     identify::Config::new("/ipfs/0.1.0".into(), key.public())
@@ -455,7 +493,7 @@ fn build_swarm(cfg: &NodeConfig) -> Result<Swarm<Behaviour>> {
                 kad,
                 mdns: Toggle::from(mdns),
                 upnp: Toggle::from(enable_upnp.then(upnp::tokio::Behaviour::default)),
-                transfer: DirectOnly::new(libp2p_stream::Behaviour::new()),
+                transfer: DirectOnly::new(libp2p_stream::Behaviour::new(), trusted.clone()),
             })
         })?
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
@@ -469,6 +507,12 @@ struct PendingConnect {
     reply: oneshot::Sender<Result<DirectConnection, ConnectFailure>>,
     failure: ConnectFailure,
     lookup: Option<kad::QueryId>,
+    /// When a connection through one of our trusted relays appeared: after
+    /// a grace period for hole punching, we settle for it.
+    trusted_since: Option<Instant>,
+    /// Last attempt to reach the peer through our own relays (retried: the
+    /// peer may get its reservation there only after we started).
+    trusted_dialed: Option<Instant>,
 }
 
 struct State {
@@ -502,6 +546,10 @@ struct State {
 
     has_global_v6: bool,
     v6_probes: u32,
+
+    /// Our own relays (fallback for data) and connections going through them.
+    trusted: HashMap<PeerId, Multiaddr>,
+    trusted_conns: HashSet<ConnectionId>,
 }
 
 impl State {
@@ -527,6 +575,15 @@ impl State {
             key_lookups: vec![],
             has_global_v6: false,
             v6_probes: 0,
+            trusted: cfg
+                .fallback_relays
+                .iter()
+                .filter_map(|a| match a.iter().last() {
+                    Some(Protocol::P2p(id)) => Some((id, strip_peer(a.clone(), &id))),
+                    _ => None,
+                })
+                .collect(),
+            trusted_conns: HashSet::new(),
         }
     }
 
@@ -551,6 +608,21 @@ impl State {
             .values()
             .find(|(p, _, relayed)| p == peer && !relayed)
             .map(|(_, a, _)| a.clone())
+    }
+
+    /// A connection through one of our trusted relays, if any.
+    fn trusted_relay_addr(&self, peer: &PeerId) -> Option<Multiaddr> {
+        self.trusted_conns
+            .iter()
+            .filter_map(|id| self.conns.get(id))
+            .find(|(p, _, _)| p == peer)
+            .map(|(_, a, _)| a.clone())
+    }
+
+    /// Where data to `peer` can go: direct first, else our own relay.
+    fn usable_addr(&self, peer: &PeerId) -> Option<Multiaddr> {
+        self.direct_addr(peer)
+            .or_else(|| self.trusted_relay_addr(peer))
     }
 
     fn confirmed_reservations(&self) -> Vec<PeerId> {
@@ -581,6 +653,11 @@ impl State {
             reservations: self.confirmed_reservations(),
             routing_peers,
             hints: self.hints.clone(),
+            own_relay_configured: !self.trusted.is_empty(),
+            own_relay_active: self
+                .confirmed_reservations()
+                .iter()
+                .any(|r| self.trusted.contains_key(r)),
         }
     }
 
@@ -682,7 +759,7 @@ fn on_command(swarm: &mut Swarm<Behaviour>, st: &mut State, cmd: Command) {
             });
         }
         Command::IsDirect(peer, reply) => {
-            let _ = reply.send(st.direct_addr(&peer));
+            let _ = reply.send(st.usable_addr(&peer));
         }
         Command::Connect { target, reply } => {
             let peer = target.peer;
@@ -691,8 +768,22 @@ fn on_command(swarm: &mut Swarm<Behaviour>, st: &mut State, cmd: Command) {
                     peer,
                     addr,
                     hole_punched: false,
+                    via_relay: false,
                 }));
                 return;
+            }
+            // Also try through our own relays (if configured): the peer keeps
+            // a reservation there, so this path exists even when every NAT
+            // in between refuses hole punching.
+            let mut target = target;
+            for (relay, addr) in &st.trusted {
+                let circuit = addr
+                    .clone()
+                    .with(Protocol::P2p(*relay))
+                    .with(Protocol::P2pCircuit);
+                if !target.addrs.contains(&circuit) {
+                    target.addrs.push(circuit);
+                }
             }
             for a in &target.addrs {
                 swarm.add_peer_address(peer, a.clone());
@@ -718,14 +809,77 @@ fn on_command(swarm: &mut Swarm<Behaviour>, st: &mut State, cmd: Command) {
                 reply,
                 failure: ConnectFailure::default(),
                 lookup,
+                trusted_since: st.trusted_relay_addr(&peer).map(|_| Instant::now()),
+                trusted_dialed: Some(Instant::now()),
             });
         }
     }
 }
 
+/// How long hole punching gets before data falls back to our own relay.
+const RELAY_GRACE: Duration = Duration::from_secs(25);
+
 fn maintain(swarm: &mut Swarm<Behaviour>, st: &mut State) {
-    // Expire connection attempts.
     let now = Instant::now();
+    // Fall back to our own relay when hole punching had its chance (or at
+    // the deadline), but only if such a connection exists.
+    let with_relay: HashSet<PeerId> = st
+        .pending
+        .iter()
+        .filter(|p| st.trusted_relay_addr(&p.peer).is_some())
+        .map(|p| p.peer)
+        .collect();
+    let (fallback, keep): (Vec<_>, Vec<_>) = st.pending.drain(..).partition(|p| {
+        (p.trusted_since.is_some_and(|t| now >= t + RELAY_GRACE) || p.deadline <= now)
+            && with_relay.contains(&p.peer)
+    });
+    st.pending = keep;
+    for p in fallback {
+        if let Some(mut q) = p
+            .lookup
+            .and_then(|id| swarm.behaviour_mut().kad.query_mut(&id))
+        {
+            q.finish();
+        }
+        let addr = st.trusted_relay_addr(&p.peer).expect("checked");
+        let _ = p.reply.send(Ok(DirectConnection {
+            peer: p.peer,
+            addr,
+            hole_punched: false,
+            via_relay: true,
+        }));
+    }
+
+    // Keep trying the path through our own relays for pending connects.
+    if !st.trusted.is_empty() {
+        let circuits: Vec<Multiaddr> = st
+            .trusted
+            .iter()
+            .map(|(r, a)| a.clone().with(Protocol::P2p(*r)).with(Protocol::P2pCircuit))
+            .collect();
+        let mut redial = vec![];
+        for p in st.pending.iter_mut() {
+            if p.trusted_since.is_none()
+                && p.trusted_dialed
+                    .is_none_or(|t| now >= t + Duration::from_secs(4))
+            {
+                p.trusted_dialed = Some(now);
+                redial.push(p.peer);
+            }
+        }
+        for peer in redial {
+            if st.trusted_relay_addr(&peer).is_none() {
+                let _ = swarm.dial(
+                    DialOpts::peer_id(peer)
+                        .addresses(circuits.clone())
+                        .condition(PeerCondition::Always)
+                        .build(),
+                );
+            }
+        }
+    }
+
+    // Expire connection attempts.
     let (expired, keep): (Vec<_>, Vec<_>) = st.pending.drain(..).partition(|p| p.deadline <= now);
     st.pending = keep;
     for mut p in expired {
@@ -762,15 +916,24 @@ fn maintain(swarm: &mut Swarm<Behaviour>, st: &mut State) {
 
     // Keep enough relay reservations.
     let active = st.reservations.len();
-    if active < config::TARGET_RESERVATIONS {
-        let busy: HashSet<PeerId> = st.reservations.values().map(|(p, _)| *p).collect();
-        let candidate = st
-            .relay_candidates
-            .iter()
-            .filter(|(p, _)| !busy.contains(p))
-            .filter(|(p, _)| st.relay_backoff.get(p).is_none_or(|t| *t <= now))
-            .map(|(p, a)| (*p, a.clone()))
-            .next();
+    let busy: HashSet<PeerId> = st.reservations.values().map(|(p, _)| *p).collect();
+    let usable =
+        |p: &PeerId| !busy.contains(p) && st.relay_backoff.get(p).is_none_or(|t| *t <= now);
+    // Our own relays are always kept reserved (they are the data fallback),
+    // on top of the public ones used for signalling.
+    let trusted_candidate = st
+        .trusted
+        .iter()
+        .find(|(p, _)| usable(p))
+        .map(|(p, a)| (*p, a.clone()));
+    if trusted_candidate.is_some() || active < config::TARGET_RESERVATIONS + st.trusted.len() {
+        let candidate = trusted_candidate.or_else(|| {
+            st.relay_candidates
+                .iter()
+                .filter(|(p, _)| usable(p) && !st.trusted.contains_key(p))
+                .map(|(p, a)| (*p, a.clone()))
+                .next()
+        });
         if let Some((relay, addr)) = candidate {
             let circuit = strip_peer(addr, &relay)
                 .with(Protocol::P2p(relay))
@@ -782,8 +945,13 @@ fn maintain(swarm: &mut Swarm<Behaviour>, st: &mut State) {
                 }
                 Err(e) => tracing::debug!("listen on {circuit} failed: {e}"),
             }
+            let backoff = if st.trusted.contains_key(&relay) {
+                5
+            } else {
+                120
+            };
             st.relay_backoff
-                .insert(relay, now + Duration::from_secs(120));
+                .insert(relay, now + Duration::from_secs(backoff));
         }
     }
 
@@ -852,6 +1020,26 @@ fn on_swarm_event(swarm: &mut Swarm<Behaviour>, st: &mut State, ev: SwarmEvent<B
         } => {
             let relayed = endpoint.is_relayed();
             let addr = endpoint.get_remote_address().clone();
+            let via = match &endpoint {
+                ConnectedPoint::Dialer { address, .. } => relay_of(address),
+                ConnectedPoint::Listener {
+                    local_addr,
+                    send_back_addr,
+                } => relay_of(local_addr).or_else(|| relay_of(send_back_addr)),
+            };
+            let addr = match (&endpoint, via) {
+                // Keep a dialable circuit address for inbound relayed conns.
+                (ConnectedPoint::Listener { local_addr, .. }, Some(_)) if relayed => {
+                    strip_peer(local_addr.clone(), &st.me)
+                }
+                _ => addr,
+            };
+            if relayed && via.is_some_and(|r| st.trusted.contains_key(&r)) {
+                st.trusted_conns.insert(connection_id);
+                for p in st.pending.iter_mut().filter(|p| p.peer == peer_id) {
+                    p.trusted_since.get_or_insert_with(Instant::now);
+                }
+            }
             st.conns
                 .insert(connection_id, (peer_id, addr.clone(), relayed));
             st.emit(NodeEvent::ConnectionOpened {
@@ -875,6 +1063,7 @@ fn on_swarm_event(swarm: &mut Swarm<Behaviour>, st: &mut State, ev: SwarmEvent<B
                             peer: peer_id,
                             addr: addr.clone(),
                             hole_punched,
+                            via_relay: false,
                         }));
                     } else {
                         i += 1;
@@ -893,6 +1082,7 @@ fn on_swarm_event(swarm: &mut Swarm<Behaviour>, st: &mut State, ev: SwarmEvent<B
             ..
         } => {
             st.conns.remove(&connection_id);
+            st.trusted_conns.remove(&connection_id);
             st.emit(NodeEvent::ConnectionClosed {
                 peer: peer_id,
                 relayed: endpoint.is_relayed(),
@@ -1004,6 +1194,10 @@ fn on_behaviour_event(swarm: &mut Swarm<Behaviour>, st: &mut State, ev: Behaviou
                 Err(e) => {
                     for p in st.pending.iter_mut().filter(|p| p.peer == remote_peer_id) {
                         p.failure.holepunch_error = Some(e.to_string());
+                        // No direct path: settle for our own relay right away.
+                        if p.trusted_since.is_some() {
+                            p.trusted_since = Some(Instant::now() - RELAY_GRACE);
+                        }
                     }
                 }
             }

@@ -28,18 +28,46 @@ use libp2p::{
 pub struct DirectOnly<B> {
     inner: B,
     relayed: HashSet<ConnectionId>,
+    /// Relays we operate ourselves (opt-in fallback): connections through
+    /// them may carry data. Public third-party relays never do.
+    trusted: HashSet<PeerId>,
 }
 
 impl<B> DirectOnly<B> {
-    pub fn new(inner: B) -> Self {
+    pub fn new(inner: B, trusted: HashSet<PeerId>) -> Self {
         Self {
             inner,
+            trusted,
             relayed: HashSet::new(),
         }
     }
 
     pub fn inner(&self) -> &B {
         &self.inner
+    }
+}
+
+/// The relay a circuit address goes through (`…/p2p/<relay>/p2p-circuit…`).
+pub fn relay_of(addr: &Multiaddr) -> Option<PeerId> {
+    let mut last = None;
+    for p in addr.iter() {
+        match p {
+            Protocol::P2p(id) => last = Some(id),
+            Protocol::P2pCircuit => return last,
+            _ => {}
+        }
+    }
+    None
+}
+
+impl<B> DirectOnly<B> {
+    /// Relayed, and not through one of our own trusted relays.
+    fn blocked(&self, a: &Multiaddr, b: &Multiaddr) -> bool {
+        if !is_relayed(a) && !is_relayed(b) {
+            return false;
+        }
+        let via = relay_of(a).or_else(|| relay_of(b));
+        !via.is_some_and(|r| self.trusted.contains(&r))
     }
 }
 
@@ -57,7 +85,7 @@ impl<B: NetworkBehaviour> NetworkBehaviour for DirectOnly<B> {
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<(), ConnectionDenied> {
-        if is_relayed(local_addr) || is_relayed(remote_addr) {
+        if self.blocked(local_addr, remote_addr) {
             return Ok(());
         }
         self.inner
@@ -71,7 +99,7 @@ impl<B: NetworkBehaviour> NetworkBehaviour for DirectOnly<B> {
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        if is_relayed(local_addr) || is_relayed(remote_addr) {
+        if self.blocked(local_addr, remote_addr) {
             self.relayed.insert(connection_id);
             return Ok(Either::Right(dummy::ConnectionHandler));
         }
@@ -103,7 +131,7 @@ impl<B: NetworkBehaviour> NetworkBehaviour for DirectOnly<B> {
         role_override: Endpoint,
         port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        if is_relayed(addr) {
+        if self.blocked(addr, addr) {
             self.relayed.insert(connection_id);
             return Ok(Either::Right(dummy::ConnectionHandler));
         }

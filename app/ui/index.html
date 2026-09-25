@@ -23,7 +23,7 @@
       <div class="hero">
         <div class="hero-icon"><img src="icon.png" alt=""></div>
         <h1>Local Send Online</h1>
-        <p class="muted">Invia e ricevi file direttamente da un altro dispositivo.<br>I file non passano da nessun server.</p>
+        <p class="muted">Invia e ricevi file direttamente da un altro dispositivo.<br>Nessun cloud, cifrato end-to-end.</p>
       </div>
       <div class="actions">
         <button class="btn primary big" id="goSend">
@@ -181,6 +181,7 @@
           <dt>Nodi della rete</dt><dd id="netPeers">—</dd>
           <dt>Indirizzo pubblico</dt><dd id="netObserved">—</dd>
           <dt>IPv6</dt><dd id="netV6">—</dd>
+          <dt>Relay di riserva</dt><dd id="netOwnRelay">—</dd>
           <dt>Porta (TCP e UDP)</dt><dd id="netPort">—</dd>
         </dl>
         <ul class="hints" id="netHints"></ul>
@@ -190,7 +191,7 @@
       <div class="group">
         <div class="group-title">Come funziona</div>
         <ul class="checks">
-          <li>I file vanno direttamente da un dispositivo all'altro, mai su un server</li>
+          <li>I file vanno direttamente da un dispositivo all'altro. Solo se le vostre reti non lo permettono (es. 4G/5G) passano dal tuo relay di riserva, che non può leggerli</li>
           <li>Usa solo la banda delle vostre due linee</li>
           <li>Per trovarsi usa nodi pubblici della rete IPFS: vedono solo che due dispositivi si cercano, mai i file</li>
           <li>Funziona su reti diverse (attraversamento del NAT)</li>

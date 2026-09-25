@@ -84,6 +84,22 @@ Esiti possibili dell'invio:
 
 I trasferimenti interrotti riprendono dal punto in cui si erano fermati.
 
+## Relay di riserva (opzionale, per le reti mobili)
+
+Con due reti mobili (o una rete mobile e un router senza porte aperte) il
+collegamento diretto è spesso impossibile. Per quei casi l'app può usare un
+**relay tuo** (es. un server Oracle Cloud "Always Free"): prima prova sempre il
+diretto; solo se fallisce, i dati passano dal relay, **cifrati end-to-end**
+(il relay non può leggerli). I relay pubblici di terzi non trasportano mai dati.
+
+Installazione sul server (Ubuntu, una riga):
+```
+curl -fsSL https://raw.githubusercontent.com/Dariosk27/local-send-online/claude/p2p-file-transfer-app-gj44yg/scripts/install-relay.sh | bash
+```
+L'indirizzo stampato va in `config::DEFAULT_RELAYS` (o nella variabile
+`LSO_RELAY`). Verificato nel laboratorio: simmetrico ↔ simmetrico passa dal
+relay; quando il diretto è possibile il relay non viene usato.
+
 ## Cosa usa di terzi (e cosa no)
 
 - **Usa** i nodi pubblici della rete IPFS/libp2p per il *control plane*: entrare

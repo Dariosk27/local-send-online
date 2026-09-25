@@ -380,8 +380,8 @@
 
   function stepsFor(t) {
     const order = t.direction === 'out'
-      ? [['searching', 'Ricerca del dispositivo'], ['connecting', 'Connessione diretta'], ['waiting', 'Conferma del destinatario'], ['transferring', 'Trasferimento'], ['verifying', 'Verifica integrità file']]
-      : [['connecting', 'Connessione diretta'], ['transferring', 'Trasferimento'], ['verifying', 'Verifica integrità file']];
+      ? [['searching', 'Ricerca del dispositivo'], ['connecting', 'Collegamento'], ['waiting', 'Conferma del destinatario'], ['transferring', 'Trasferimento'], ['verifying', 'Verifica integrità file']]
+      : [['connecting', 'Collegamento'], ['transferring', 'Trasferimento'], ['verifying', 'Verifica integrità file']];
     const rank = { searching: 0, connecting: 1, waiting: 2, transferring: 3, verifying: 4, done: 5 };
     const cur = rank[t.stage] ?? 0;
     return order.map(([s, label]) => {
@@ -467,7 +467,7 @@
   });
 
   // ------------------------------------------------------------ receive with code
-  const codeSteps = [['searching', 'Ricerca del dispositivo'], ['connecting', 'Connessione diretta'], ['requesting', 'Richiesta dei file']];
+  const codeSteps = [['searching', 'Ricerca del dispositivo'], ['connecting', 'Collegamento'], ['requesting', 'Richiesta dei file']];
   function resetReceive() {
     $('codeInput').value = '';
     $('receiveBtn').disabled = true;
@@ -586,6 +586,7 @@
     $('netPeers').textContent = status.dht_peers;
     $('netObserved').textContent = [...new Set(status.observed.map((a) => a.split('/')[2]))].join(', ') || 'non ancora noto';
     $('netV6').textContent = status.ipv6 ? 'sì' : 'no';
+    $('netOwnRelay').textContent = { none: 'non configurato', connecting: 'connessione…', active: 'attivo' }[status.own_relay] || '—';
     $('netPort').textContent = status.port ?? '—';
     $('netPortTip').textContent = status.port
       ? `Per ricevere anche da reti mobili (4G/5G): attiva l'UPnP sul router di casa, oppure apri la porta ${status.port} (TCP e UDP) verso questo computer.`

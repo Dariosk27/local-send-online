@@ -39,12 +39,18 @@ setup() { # natA natB [receiver-port]
       local v6; [ $n = infra ] && v6=2001:db8:10::2 || v6=2001:db8:40::2
       ext6=(--external /ip6/$v6/udp/4001/quic-v1 --external /ip6/$v6/tcp/4001)
     fi
-    "$NL" exec $n "$B" --identity "$W/$n.key" --port 4001 --no-default-bootstrap infra \
+    local mode=infra; [ "${RELAY_MODE:-0}" = 1 ] && [ $n = infra2 ] && mode=relay
+    "$NL" exec $n "$B" --identity "$W/$n.key" --port 4001 --no-default-bootstrap $mode \
       --external /ip4/$ip/udp/4001/quic-v1 --external /ip4/$ip/tcp/4001 "${ext6[@]}" >"$W/$n.out" 2>&1 &
     sleep 0.5
     BOOT+=(--bootstrap "/ip4/$ip/udp/4001/quic-v1/p2p/$("$B" --identity "$W/$n.key" id)")
     BOOT+=(--bootstrap "/ip4/$ip/tcp/4001/p2p/$("$B" --identity "$W/$n.key" id)")
   done
+  if [ "${RELAY_MODE:-0}" = 1 ]; then
+    export LSO_RELAY="/ip4/80.40.0.2/udp/4001/quic-v1/p2p/$("$B" --identity "$W/infra2.key" id)"
+  else
+    unset LSO_RELAY
+  fi
   "$NL" exec hostB "$B" --identity "$W/b.key" --no-default-bootstrap "${BOOT[@]}" --port "${3:-0}" -v \
     receive --dir "$W/b/in" --yes >"$W/b.out" 2>"$W/b.err" &
   for _ in $(seq 60); do grep -q '^lso1' "$W/b.out" 2>/dev/null && break; sleep 1; done
@@ -116,7 +122,22 @@ run_code() {
     "$(grep -o 'connessione DIRETTA via [^ ]*' "$W/send.log" | head -1)"
 }
 
-ALL=(cone-ticket cone-dht cone-sym sym-sym sym-forward resume code sym-sym-v6)
+run_relay() { # both sides symmetric (mobile ↔ mobile), with our own fallback relay on infra2
+  BOOT=(); RELAY_MODE=1 setup symmetric symmetric
+  local r0; r0=$(relay_bytes)
+  "$NL" exec hostA "$B" --identity "$W/a.key" --no-default-bootstrap "${BOOT[@]}" share "$W/a/file.bin" \
+    >"$W/share.out" 2>"$W/share.err" &
+  for _ in $(seq 60); do grep -q -- '-' "$W/share.out" 2>/dev/null && break; sleep 1; done
+  mkdir -p "$W/g"
+  timeout 200 "$NL" exec hostB "$B" --identity "$W/g.key" --no-default-bootstrap "${BOOT[@]}" \
+    get "$(head -1 "$W/share.out")" --dir "$W/g" --yes >"$W/send.log" 2>&1
+  local rc=$? got=nodirect
+  cmp -s "$W/a/file.bin" "$W/g/file.bin" && [ $rc = 0 ] && grep -q "relay di riserva" "$W/send.log" && got=via-relay
+  record "symmetric/symmetric + own relay (fallback)" via-relay "$got" "$(( $(relay_bytes) - r0 ))" \
+    "$(grep -o 'connessione tramite[^(]*' "$W/send.log" | head -1)"
+}
+
+ALL=(cone-ticket cone-dht cone-sym sym-sym sym-forward resume code sym-sym-v6 relay)
 for s in "${@:-${ALL[@]}}"; do
   case $s in
     cone-ticket) run_simple "cone/cone, ticket" cone cone ticket direct ;;
@@ -126,6 +147,7 @@ for s in "${@:-${ALL[@]}}"; do
     sym-forward) run_simple "symmetric/port-forwarded receiver" symmetric forward ticket direct 5000 ;;
     resume)      run_resume ;;
     code)        run_code ;;
+    relay)       run_relay ;;
     sym-sym-v6)
       if [ ! -d /proc/sys/net/ipv6 ]; then
         RESULTS+=("SKIP symmetric/symmetric + IPv6              (kernel senza IPv6)"); echo "${RESULTS[-1]}"; continue

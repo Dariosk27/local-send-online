@@ -44,6 +44,22 @@ pub fn default_bootstrap() -> Vec<Multiaddr> {
 /// manual port forward on the home router keep working across restarts.
 pub const DEFAULT_PORT: u16 = 47800;
 
+/// Our own relay(s), used to carry data only when a direct connection is
+/// impossible (e.g. both sides on mobile networks). Data stays end-to-end
+/// encrypted (Noise/TLS between the two devices). Empty = direct only.
+/// Overridable with the LSO_RELAY environment variable (comma separated).
+pub const DEFAULT_RELAYS: &[&str] = &[];
+
+pub fn fallback_relays() -> Vec<Multiaddr> {
+    match std::env::var("LSO_RELAY") {
+        Ok(v) => v.split(',').filter_map(|s| s.trim().parse().ok()).collect(),
+        Err(_) => DEFAULT_RELAYS
+            .iter()
+            .filter_map(|s| s.parse().ok())
+            .collect(),
+    }
+}
+
 /// How many relay reservations a receiving node tries to keep open. More
 /// than one so that a single relay going away does not make us unreachable.
 pub const TARGET_RESERVATIONS: usize = 2;
