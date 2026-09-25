@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local Send Online</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="titlebar" data-tauri-drag-region>
+    <div class="brand" data-tauri-drag-region>
+      <img src="icon.png" alt="" class="brand-icon">
+      <span data-tauri-drag-region>Local Send Online</span>
+    </div>
+    <button class="status-pill" id="statusPill" title="Dettagli della rete">
+      <span class="dot"></span><span id="statusText">Connessione…</span>
+    </button>
+  </header>
+
+  <main class="layout">
+    <!-- RICEVI -->
+    <section class="card receive">
+      <div class="card-head">
+        <h2>Ricevi</h2>
+        <span class="muted small">Questo dispositivo</span>
+      </div>
+
+      <div class="device">
+        <div class="avatar big" id="myAvatar">?</div>
+        <div class="device-info">
+          <div class="device-name">
+            <input id="deviceName" spellcheck="false" aria-label="Nome del dispositivo">
+            <svg class="pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4"/></svg>
+          </div>
+          <div class="muted small" id="reachText">Avvio in corso…</div>
+        </div>
+      </div>
+
+      <div class="qr-wrap">
+        <div class="qr" id="qr"><div class="qr-placeholder"><div class="spinner"></div></div></div>
+      </div>
+
+      <div class="code-row">
+        <div class="code" id="codeText">—</div>
+        <button class="btn primary" id="copyCode" disabled>
+          <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+          Copia codice
+        </button>
+      </div>
+      <p class="hint">Manda questo codice a chi deve inviarti file. Ogni invio chiede la tua conferma, e i file viaggiano <b>direttamente</b> tra i due dispositivi, senza cloud.</p>
+
+      <button class="folder" id="openFolder">
+        <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span id="folderText">Download/LocalSendOnline</span>
+        <span class="change" id="changeFolder">Cambia</span>
+      </button>
+    </section>
+
+    <div class="right">
+      <!-- INVIA -->
+      <section class="card send">
+        <div class="card-head">
+          <h2>Invia</h2>
+        </div>
+
+        <div class="drop" id="drop">
+          <div class="drop-empty" id="dropEmpty">
+            <div class="drop-icon">
+              <svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+            </div>
+            <div><b>Trascina qui i file</b></div>
+            <div class="muted small">oppure <button class="link" id="pickFiles">scegli dal computer</button></div>
+          </div>
+          <div class="files" id="files" hidden></div>
+        </div>
+
+        <div class="to">
+          <label class="label" for="target">Destinatario</label>
+          <div class="contacts" id="contacts"></div>
+          <div class="target-row">
+            <input id="target" placeholder="Incolla il codice del destinatario (lso1…)" spellcheck="false" autocomplete="off">
+            <button class="btn send-btn" id="sendBtn" disabled>
+              <svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2-7z"/></svg>
+              Invia
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ATTIVITÀ -->
+      <section class="card activity">
+        <div class="card-head">
+          <h2>Attività</h2>
+        </div>
+        <div class="transfers" id="transfers">
+          <div class="empty" id="emptyActivity">
+            <svg viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H9M17 7v8"/></svg>
+            <span>Nessun trasferimento per ora</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Offerta in arrivo -->
+  <div class="overlay" id="offerOverlay" hidden>
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="sheet-head">
+        <div class="avatar big" id="offerAvatar">?</div>
+        <div>
+          <div class="sheet-title"><span id="offerFrom"></span> vuole inviarti</div>
+          <div class="muted small" id="offerSummary"></div>
+        </div>
+      </div>
+      <div class="badge" id="offerKnown" hidden>Contatto già noto</div>
+      <ul class="offer-files" id="offerFiles"></ul>
+      <p class="muted small">Il trasferimento avviene su una connessione diretta e cifrata. Ogni file viene verificato all'arrivo.</p>
+      <div class="sheet-actions">
+        <button class="btn ghost" id="offerReject">Rifiuta</button>
+        <button class="btn primary" id="offerAccept">Accetta</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dettagli rete -->
+  <div class="overlay" id="netOverlay" hidden>
+    <div class="sheet wide" role="dialog" aria-modal="true">
+      <div class="sheet-head">
+        <div>
+          <div class="sheet-title">Stato della rete</div>
+          <div class="muted small">Cosa vede Internet di questo dispositivo</div>
+        </div>
+        <button class="icon-btn" id="netClose" aria-label="Chiudi">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <div class="net-verdict" id="netVerdict"></div>
+      <dl class="net-grid">
+        <dt>Relay di segnalazione</dt><dd id="netRelays">—</dd>
+        <dt>Nodi della rete conosciuti</dt><dd id="netPeers">—</dd>
+        <dt>Indirizzo pubblico</dt><dd id="netObserved">—</dd>
+        <dt>Identificativo (PeerId)</dt><dd class="mono" id="netPeerId">—</dd>
+      </dl>
+      <ul class="net-hints" id="netHints"></ul>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="vendor/qrcode.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -24,7 +24,27 @@ relay per i dati.
 3. [docs/TEST.md](docs/TEST.md): laboratorio NAT, risultati, procedura
    Windows ↔ macOS.
 
-## Uso (v0.1, CLI)
+## App desktop (macOS, Windows)
+
+`app/` contiene l'app con interfaccia grafica (Tauri 2: finestra nativa,
+UI in HTML/CSS, stesso core Rust della CLI). La CI produce
+`LocalSendOnline.dmg` (Mac Intel + Apple Silicon) e
+`LocalSendOnline-Setup.exe` (Windows).
+
+- **Ricevi**: il tuo codice (testo + QR) da mandare a chi ti invia file;
+  ogni invio chiede conferma.
+- **Invia**: trascina i file, scegli un contatto o incolla un codice.
+- **Attività**: avanzamento reale, velocità, verifica finale; se il
+  collegamento diretto è impossibile, spiega perché in parole semplici.
+- **Contatti**: i dispositivi con cui hai già scambiato file restano
+  in elenco (ritrovati per PeerId anche se cambiano IP).
+
+Compilare in locale: `cd app/src-tauri && npx @tauri-apps/cli@2 build`
+(su Linux servono `libwebkit2gtk-4.1-dev` e `libgtk-3-dev`).
+Anteprima grafica nel browser: `cd app/ui && python3 -m http.server`
+(usa `dev/preview.js`, un backend finto solo per il design).
+
+## Uso da riga di comando (CLI)
 
 ```
 cargo build --release          # binario: target/release/lso(.exe)

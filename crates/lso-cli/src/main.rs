@@ -275,7 +275,7 @@ async fn receive(net: &NetArgs, dir: Option<PathBuf>, yes: bool, once: bool) -> 
         let total = offer.total_size();
         let mut bars = Bars::default();
         match incoming_transfer
-            .accept(peer, &dest, |p| bars.update(p))
+            .accept_as(peer, &dest, Some(&hostname()), |p| bars.update(p))
             .await
         {
             Ok(paths) => {

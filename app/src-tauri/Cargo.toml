@@ -1,0 +1,33 @@
+[package]
+name = "lso-app"
+description = "Local Send Online desktop app"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+# Separate workspace: the desktop shell needs system WebView libraries that
+# the core/CLI CI jobs don't have to install.
+[workspace]
+
+[[bin]]
+name = "lso-app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+lso-core = { path = "../../crates/lso-core" }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+directories = "6"
+whoami = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+strip = true

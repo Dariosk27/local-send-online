@@ -1,2 +1,5 @@
 target/
 *.lso-part
+app/src-tauri/target/
+app/src-tauri/gen/
+LocalSendOnline/

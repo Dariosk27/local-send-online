@@ -36,7 +36,10 @@ async fn loopback_ticket(n: &Node) -> Ticket {
             .cloned()
             .collect();
         if addrs.len() >= 2 {
-            return Ticket { peer: n.peer_id(), addrs };
+            return Ticket {
+                peer: n.peer_id(),
+                addrs,
+            };
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
@@ -101,7 +104,10 @@ async fn transfer_and_resume_over_direct_connection() {
     let target = loopback_ticket(&receiver).await;
     // Round-trip through the textual ticket, as a user would.
     let target = ticket::parse_target(&target.encode()).unwrap();
-    let conn = sender.connect_direct(target).await.expect("direct connection");
+    let conn = sender
+        .connect_direct(target)
+        .await
+        .expect("direct connection");
     assert!(!conn.addr.to_string().contains("p2p-circuit"));
 
     let mut control = sender.control();
@@ -116,10 +122,16 @@ async fn transfer_and_resume_over_direct_connection() {
     .unwrap();
     assert_eq!(last, content.len() as u64);
 
-    let (paths, resumed_from) = tokio::time::timeout(Duration::from_secs(30), recv).await.unwrap().unwrap();
+    let (paths, resumed_from) = tokio::time::timeout(Duration::from_secs(30), recv)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(resumed_from, Some(3 * 1024 * 1024));
     assert_eq!(std::fs::read(&paths[0]).unwrap(), content);
-    assert!(!part.exists(), "partial file must be renamed after verification");
+    assert!(
+        !part.exists(),
+        "partial file must be renamed after verification"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

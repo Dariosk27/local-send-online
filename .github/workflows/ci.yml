@@ -130,10 +130,47 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: lso-macos-universal, path: lso }
 
+  # Desktop app (Tauri): .dmg for macOS (universal), NSIS installer for Windows.
+  desktop-app:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --target universal-apple-darwin
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - os: windows-latest
+            args: ""
+            targets: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - name: build app bundle
+        working-directory: app/src-tauri
+        shell: bash
+        run: npx -y @tauri-apps/cli@2 build ${{ matrix.args }}
+      - name: collect
+        shell: bash
+        run: |
+          mkdir out
+          find app/src-tauri/target -path '*release/bundle/dmg/*.dmg' -exec cp {} out/LocalSendOnline.dmg \;
+          find app/src-tauri/target -path '*release/bundle/nsis/*.exe' -exec cp {} out/LocalSendOnline-Setup.exe \;
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ matrix.os }}
+          path: out/*
+
   # Test kit to hand to testers: Windows + Mac binaries, double-click
   # scripts, instructions. Published as an artifact and on the test-kit branch.
   kit:
-    needs: [build, mac-universal]
+    needs: [build, mac-universal, desktop-app]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -143,6 +180,10 @@ jobs:
         with: { name: lso-windows-latest, path: win }
       - uses: actions/download-artifact@v4
         with: { name: lso-macos-universal, path: mac }
+      - uses: actions/download-artifact@v4
+        with: { name: app-macos-latest, path: appmac }
+      - uses: actions/download-artifact@v4
+        with: { name: app-windows-latest, path: appwin }
       - name: assemble
         run: |
           K=LocalSendOnline-test
@@ -158,9 +199,11 @@ jobs:
       - name: publish on test-kit branch
         if: github.event_name == 'push'
         run: |
-          mkdir pub && mv LocalSendOnline-test.zip pub/ && cd pub
+          mkdir pub && mv LocalSendOnline-test.zip pub/
+          cp appmac/LocalSendOnline.dmg appwin/LocalSendOnline-Setup.exe pub/
+          cd pub
           git init -q -b test-kit
           git config user.name "ci" && git config user.email "ci@users.noreply.github.com"
-          git add LocalSendOnline-test.zip
+          git add .
           git commit -q -m "test kit ${GITHUB_SHA::7}"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" test-kit

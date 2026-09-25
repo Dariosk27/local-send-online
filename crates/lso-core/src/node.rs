@@ -832,8 +832,7 @@ fn on_behaviour_event(swarm: &mut Swarm<Behaviour>, st: &mut State, ev: Behaviou
                     st.check_symmetric_nat();
                 }
             }
-            let supports_hop = info
-                .protocols.contains(&relay::HOP_PROTOCOL_NAME);
+            let supports_hop = info.protocols.contains(&relay::HOP_PROTOCOL_NAME);
             if supports_hop && peer_id != st.me {
                 if let Some((_, addr, false)) = st.conns.get(&connection_id) {
                     if is_public(addr) {

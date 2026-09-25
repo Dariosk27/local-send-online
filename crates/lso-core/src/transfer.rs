@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! S->R  "LSO1" | u32 len | JSON Offer {files:[{name,size}], from}
-//! R->S  u32 len | JSON Answer {accept, offsets:[u64], reason}
+//! R->S  u32 len | JSON Answer {accept, offsets:[u64], reason, name?}
 //! for each file i:
 //!   S->R  raw bytes [offsets[i] .. size)
 //!   S->R  32-byte BLAKE3 of the *whole* file
@@ -61,6 +61,9 @@ struct Answer {
     accept: bool,
     offsets: Vec<u64>,
     reason: Option<String>,
+    /// Receiver's device name (optional, added after v0.1.0).
+    #[serde(default)]
+    name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -89,8 +92,21 @@ pub async fn send_files(
     peer: PeerId,
     paths: &[PathBuf],
     from: &str,
-    mut progress: impl FnMut(Progress),
+    progress: impl FnMut(Progress),
 ) -> Result<()> {
+    send_files_named(control, peer, paths, from, progress)
+        .await
+        .map(|_| ())
+}
+
+/// Like [`send_files`], and returns the name the receiver announced, if any.
+pub async fn send_files_named(
+    control: &mut libp2p_stream::Control,
+    peer: PeerId,
+    paths: &[PathBuf],
+    from: &str,
+    mut progress: impl FnMut(Progress),
+) -> Result<Option<String>> {
     let mut files = Vec::new();
     for p in paths {
         let meta = fs::metadata(p)
@@ -181,7 +197,7 @@ pub async fn send_files(
         progress(Progress::FileVerified { index, path: None });
     }
     s.shutdown().await.ok();
-    Ok(())
+    Ok(answer.name)
 }
 
 /// Right after hole punching there can be several direct connections (TCP and
@@ -239,6 +255,7 @@ impl IncomingTransfer {
             accept: false,
             offsets: vec![],
             reason: Some(reason.into()),
+            name: None,
         };
         write_json(&mut self.s, &a).await?;
         self.s.shutdown().await.ok();
@@ -247,9 +264,20 @@ impl IncomingTransfer {
 
     /// Accepts the offer and stores the files in `dest`. Returns final paths.
     pub async fn accept(
+        self,
+        peer: PeerId,
+        dest: &Path,
+        progress: impl FnMut(Progress),
+    ) -> Result<Vec<PathBuf>> {
+        self.accept_as(peer, dest, None, progress).await
+    }
+
+    /// Like [`Self::accept`], telling the sender our device name.
+    pub async fn accept_as(
         mut self,
         peer: PeerId,
         dest: &Path,
+        name: Option<&str>,
         mut progress: impl FnMut(Progress),
     ) -> Result<Vec<PathBuf>> {
         fs::create_dir_all(dest).await?;
@@ -274,6 +302,7 @@ impl IncomingTransfer {
             accept: true,
             offsets: offsets.clone(),
             reason: None,
+            name: name.map(str::to_string),
         };
         write_json(&mut self.s, &answer).await?;
         self.s.flush().await?;
