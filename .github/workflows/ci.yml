@@ -1,0 +1,93 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build + unit tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - run: cargo test --release --locked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lso-${{ matrix.os }}
+          path: |
+            target/release/lso
+            target/release/lso.exe
+
+  # Real processes behind real Linux NAT in network namespaces (see tests/netlab).
+  netlab:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: lso-ubuntu-latest, path: bin }
+      - run: chmod +x bin/lso
+      - run: sudo apt-get update && sudo apt-get install -y iproute2 iptables libnetfilter-queue-dev python3-dev
+      # Latency: netem if the runner kernel has it, else the NFQUEUE fallback.
+      - run: sudo modprobe sch_netem || sudo pip install --break-system-packages NetfilterQueue
+      - run: sudo env LSO_BIN=$PWD/bin/lso SIZE_MB=40 tests/netlab/scenarios.sh
+
+  # Real Internet, real OSes: macOS receives, Windows sends, using only the
+  # public IPFS DHT + public relays for signalling. The outcome depends on the
+  # NATs of GitHub's hosting providers, which we do not control: a failure here
+  # with the "hole punching" diagnosis is a legitimate, informative result, so
+  # the jobs do not fail the workflow.
+  internet-mac-receiver:
+    needs: build
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: lso-macos-latest, path: bin }
+      - run: chmod +x bin/lso
+      - name: diagnose NAT
+        run: bin/lso --identity-seed "ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-diag-mac" diag --seconds 30 || true
+      - name: receive
+        run: |
+          python3 tests/gen_file.py "ci-$GITHUB_RUN_ID" 50 expected.bin
+          timeout 900 bin/lso --identity-seed "ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-mac" -v \
+            receive --dir out --yes --once
+          shasum -a 256 expected.bin out/*
+          cmp expected.bin out/expected.bin
+
+  internet-windows-sender:
+    needs: build
+    runs-on: windows-latest
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: lso-windows-latest, path: bin }
+      - name: diagnose NAT
+        run: bin/lso.exe --identity-seed "ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-diag-win" diag --seconds 30 || true
+      - name: send to the macOS runner (PeerId only, found through the DHT)
+        run: |
+          python tests/gen_file.py "ci-$GITHUB_RUN_ID" 50 expected.bin
+          target=$(bin/lso.exe --identity-seed "ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-mac" id)
+          echo "receiver PeerId: $target"
+          for i in 1 2 3 4 5 6; do
+            bin/lso.exe --identity-seed "ci-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-win" -v send "$target" expected.bin && exit 0
+            echo "attempt $i failed (receiver not announced yet, or no direct path); retrying in 60s"
+            sleep 60
+          done
+          exit 1

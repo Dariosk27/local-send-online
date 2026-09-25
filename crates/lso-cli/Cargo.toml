@@ -1,0 +1,20 @@
+[package]
+name = "lso-cli"
+description = "Command line client for Local Send Online"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "lso"
+path = "src/main.rs"
+
+[dependencies]
+lso-core = { path = "../lso-core" }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+indicatif = "0.18"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+directories = "6"
+futures-lite = "2"
