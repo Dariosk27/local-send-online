@@ -284,6 +284,7 @@
     $('codeText').textContent = share.code.replace('-', ' - ');
     $('newCode').hidden = true;
     $('codeWaiting').hidden = false;
+    resetPeerStatus();
     $('expiry').classList.remove('expired');
     clearInterval(expiryTimer);
     const tick = () => {
@@ -322,6 +323,32 @@
     $('connectRecent').hidden = contacts.length === 0;
     $('noRecent').hidden = contacts.length > 0;
   }
+  // Someone typed our code: show what is happening instead of just waiting.
+  function resetPeerStatus() {
+    $('codeWaitingText').textContent = 'In attesa che venga inserito…';
+    $('codePeerError').hidden = true;
+    $('codePeerDetails').hidden = true;
+  }
+  await listen('peer', (e) => {
+    if (screen !== 'connect' || !share) return;
+    const p = e.payload;
+    const who = p.name || 'Un dispositivo';
+    if (p.kind === 'reached') {
+      $('codeWaiting').hidden = false;
+      $('codePeerError').hidden = true;
+      $('codePeerDetails').hidden = true;
+      $('codeWaitingText').textContent = `${who} ti ha trovato: apertura del collegamento diretto…`;
+    } else if (p.kind === 'direct') {
+      $('codeWaitingText').textContent = `Collegato direttamente con ${who}: in attesa della richiesta dei file…`;
+    } else if (p.kind === 'failed') {
+      $('codeWaitingText').textContent = 'In attesa di un nuovo tentativo…';
+      $('codePeerError').textContent = p.message;
+      $('codePeerError').hidden = false;
+      $('codePeerDetails').hidden = !p.detail;
+      $('codePeerDetailText').textContent = p.detail || '';
+    }
+  });
+
   await listen('share-used', (e) => {
     if (share && share.id === e.payload) {
       clearInterval(expiryTimer);

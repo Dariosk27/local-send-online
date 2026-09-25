@@ -85,7 +85,9 @@
           <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>Copia codice
         </button>
         <p class="muted center">Detta o manda questo codice all'altra persona:<br>lo inserisce in <b>Ricevi file</b> nella sua app.</p>
-        <div class="waiting" id="codeWaiting"><div class="spinner small"></div><span>In attesa che venga inserito…</span></div>
+        <div class="waiting" id="codeWaiting"><div class="spinner small"></div><span id="codeWaitingText">In attesa che venga inserito…</span></div>
+        <div class="result-msg" id="codePeerError" hidden></div>
+        <details class="tech" id="codePeerDetails" hidden><summary>Dettagli tecnici</summary><pre id="codePeerDetailText"></pre></details>
         <div class="expiry" id="expiry">
           <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span id="expiryText">Il codice scade tra 5:00</span>
         </div>

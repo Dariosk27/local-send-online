@@ -144,6 +144,17 @@ struct TransferEvent {
     folder: Option<String>,
 }
 
+/// Another device reached us (or tried to): shown on the code screen.
+#[derive(Serialize, Clone)]
+struct PeerEvent {
+    peer_id: String,
+    name: Option<String>,
+    /// "reached" | "direct" | "failed"
+    kind: &'static str,
+    message: Option<String>,
+    detail: Option<String>,
+}
+
 #[derive(Serialize, Clone)]
 struct CodeEvent {
     code: String,
@@ -992,10 +1003,42 @@ fn main() {
             tauri::async_runtime::spawn(receive_loop(handle.clone(), app.clone()));
             tauri::async_runtime::spawn(pull_loop(handle.clone(), app.clone()));
 
-            // Nudge the UI to refresh its network status when it changes.
+            // Nudge the UI to refresh its network status when it changes,
+            // and tell it when another device reaches us (relayed signalling
+            // connection) and how the upgrade to a direct connection went:
+            // otherwise the person sharing a code sees nothing at all.
             let mut events = app.node.events();
+            let app_ev = app.clone();
             tauri::async_runtime::spawn(async move {
                 while let Ok(ev) = events.recv().await {
+                    let peer_event = match &ev {
+                        NodeEvent::ConnectionOpened { peer, relayed: true, .. } => {
+                            Some((*peer, "reached", None))
+                        }
+                        NodeEvent::HolePunch { peer, result: Ok(()) } => Some((*peer, "direct", None)),
+                        NodeEvent::HolePunch { peer, result: Err(e) } => Some((*peer, "failed", Some(e.clone()))),
+                        _ => None,
+                    };
+                    if let Some((peer, kind, detail)) = peer_event {
+                        let _ = handle.emit(
+                            "peer",
+                            PeerEvent {
+                                peer_id: peer.to_base58(),
+                                name: app_ev.contact_name(&peer),
+                                kind,
+                                message: (kind == "failed").then(|| {
+                                    format!(
+                                        "Un dispositivo ha inserito il codice, ma tra le vostre due reti il collegamento \
+                                         diretto non è possibile (succede con le reti mobili 4G/5G). Rimedio: sul router \
+                                         di casa attiva l'UPnP oppure apri la porta {} (TCP e UDP) verso questo \
+                                         computer, poi fate riprovare: il codice resta valido.",
+                                        config::DEFAULT_PORT
+                                    )
+                                }),
+                                detail,
+                            },
+                        );
+                    }
                     if matches!(
                         ev,
                         NodeEvent::ReservationAccepted { .. }
