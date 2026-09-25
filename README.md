@@ -33,7 +33,7 @@ UI in HTML/CSS, stesso core Rust della CLI). La CI produce
 
 Flusso:
 1. **Invia file** → scegli o trascina i file → **Continua**.
-2. L'app mostra un **codice breve** (es. `7F3K-9H2P`, anche come QR), valido
+2. L'app mostra un **codice breve** (es. `7F3K-9H2P`), valido
    5 minuti e usabile una volta sola. Lo detti o lo mandi all'altra persona.
 3. L'altra persona apre **Ricevi file**, scrive il codice, conferma la
    richiesta: i file arrivano con avanzamento reale, velocità, tempo
