@@ -1,0 +1,62 @@
+LOCAL SEND ONLINE - kit di prova (versione 0.1, sperimentale)
+==============================================================
+
+Invia file da un computer all'altro via Internet, DIRETTAMENTE: il file non
+passa da nessun server e nessun cloud. Non serve un account.
+
+ATTENZIONE: e' un prototipo. Su alcune reti (spesso 4G/5G, reti aziendali,
+Wi-Fi di hotel) la connessione diretta e' impossibile: il programma lo dice
+chiaramente invece di far finta di funzionare. E' proprio questo che vogliamo
+misurare con la prova.
+
+--------------------------------------------------------------
+PRIMO AVVIO (una volta sola)
+--------------------------------------------------------------
+Windows
+  - Apri la cartella "Windows".
+  - Se compare "Windows ha protetto il PC": "Ulteriori informazioni" ->
+    "Esegui comunque" (il programma non e' firmato).
+  - Quando Windows Firewall chiede l'accesso alla rete: CONSENTI, spuntando
+    anche "Reti pubbliche". Se lo neghi, la connessione diretta fallisce.
+
+Mac
+  - Apri la cartella "Mac".
+  - Il programma non e' firmato da Apple: apri il Terminale e scrivi
+        xattr -dr com.apple.quarantine 
+    (con uno spazio finale), trascina la cartella "Mac" nella finestra e
+    premi Invio. In alternativa: tasto destro su ogni file -> Apri -> Apri.
+  - Se macOS chiede di accettare connessioni in entrata: CONSENTI.
+
+--------------------------------------------------------------
+COME SI USA
+--------------------------------------------------------------
+1. CHI RICEVE: doppio clic su "Ricevi" (Ricevi.bat / Ricevi.command).
+   Dopo qualche secondo compare un "Ticket": una lunga riga che inizia con
+   lso1... Copiala tutta e mandala all'altra persona (WhatsApp, email...).
+   Lascia la finestra aperta.
+
+2. CHI INVIA:
+   - Windows: trascina il file sopra "Invia.bat", incolla il ticket, Invio.
+   - Mac: doppio clic su "Invia.command", incolla il ticket, Invio, poi
+     trascina il file nella finestra e premi Invio.
+
+3. Chi riceve vede l'offerta. Se chiede "Accettare? [s/N]", scrivi s e Invio.
+
+Se la connessione diretta riesce vedrai "connessione DIRETTA stabilita" e la
+barra di avanzamento. Alla fine il file viene verificato (hash BLAKE3).
+Se non riesce vedrai "IMPOSSIBILE stabilire una connessione diretta" con il
+motivo.
+
+--------------------------------------------------------------
+PER LA PROVA: COSA RIMANDARE
+--------------------------------------------------------------
+- Prima di tutto, su entrambi i computer: doppio clic su "Diagnosi" e
+  copia il risultato.
+- Poi fai un invio e copia tutto il testo della finestra (sia chi invia
+  che chi riceve), anche se fallisce.
+- Indica che rete usavi (Wi-Fi di casa e operatore, hotspot del telefono...).
+
+Prove consigliate:
+  a) casa tua <-> casa dell'amico (Wi-Fi)
+  b) uno dei due sull'hotspot del telefono
+  c) entrambi sull'hotspot del telefono (probabilmente fallira': e' atteso)

@@ -2,6 +2,7 @@ name: ci
 
 on:
   push:
+    branches-ignore: [test-kit]
   pull_request:
   workflow_dispatch:
 
@@ -91,3 +92,55 @@ jobs:
             sleep 60
           done
           exit 1
+
+  # macOS binary for both Apple Silicon and Intel Macs.
+  mac-universal:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+          lipo -create -output lso target/aarch64-apple-darwin/release/lso target/x86_64-apple-darwin/release/lso
+          lipo -info lso
+      - uses: actions/upload-artifact@v4
+        with: { name: lso-macos-universal, path: lso }
+
+  # Test kit to hand to testers: Windows + Mac binaries, double-click
+  # scripts, instructions. Published as an artifact and on the test-kit branch.
+  kit:
+    needs: [build, mac-universal]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: lso-windows-latest, path: win }
+      - uses: actions/download-artifact@v4
+        with: { name: lso-macos-universal, path: mac }
+      - name: assemble
+        run: |
+          K=LocalSendOnline-test
+          cp -r packaging/kit $K
+          cp win/lso.exe $K/Windows/
+          cp mac/lso $K/Mac/
+          chmod +x $K/Mac/lso $K/Mac/*.command
+          sed -i 's/$/\r/' $K/Windows/*.bat $K/LEGGIMI.txt
+          echo "build ${GITHUB_SHA::7} $(date -u +%F)" > $K/VERSIONE.txt
+          zip -r -X LocalSendOnline-test.zip $K
+      - uses: actions/upload-artifact@v4
+        with: { name: LocalSendOnline-test, path: LocalSendOnline-test.zip }
+      - name: publish on test-kit branch
+        if: github.event_name == 'push'
+        run: |
+          mkdir pub && mv LocalSendOnline-test.zip pub/ && cd pub
+          git init -q -b test-kit
+          git config user.name "ci" && git config user.email "ci@users.noreply.github.com"
+          git add LocalSendOnline-test.zip
+          git commit -q -m "test kit ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" test-kit
