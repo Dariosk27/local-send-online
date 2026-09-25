@@ -101,6 +101,9 @@ struct Status {
     dht_peers: usize,
     hints: Vec<String>,
     symmetric_nat: bool,
+    /// Local UDP/TCP port (for port forwarding on the home router).
+    port: Option<u16>,
+    ipv6: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -289,6 +292,16 @@ async fn status(app: State<'_, Arc<App>>) -> Result<Status, String> {
             .iter()
             .any(|h| matches!(h, NatHint::SymmetricNat { .. })),
         hints: s.hints.iter().map(describe_hint).collect(),
+        port: s.listen_addrs.iter().find_map(|a| {
+            a.iter().find_map(|p| match p {
+                lso_core::node::MultiaddrProtocol::Udp(port) => Some(port),
+                _ => None,
+            })
+        }),
+        ipv6: s
+            .external_addrs
+            .iter()
+            .any(|a| a.to_string().starts_with("/ip6/2") || a.to_string().starts_with("/ip6/3")),
     })
 }
 
@@ -686,10 +699,13 @@ fn count_label(n: usize) -> String {
 
 fn friendly_failure(f: &ConnectFailure) -> String {
     let mut msg = if f.relayed_connection {
-        "L'altro dispositivo è online, ma tra le vostre due reti non è possibile un collegamento diretto \
-         (succede di solito con reti mobili 4G/5G o aziendali). Prova da un'altra rete, per esempio \
-         il Wi‑Fi di casa su uno dei due dispositivi."
-            .to_string()
+        format!(
+            "L'altro dispositivo è online, ma tra le vostre due reti non è possibile un collegamento diretto \
+             (succede di solito con reti mobili 4G/5G o aziendali). Rimedi: chi è su una rete di casa attiva \
+             l'UPnP sul router, oppure apre la porta {} (TCP e UDP) verso il proprio computer; in \
+             alternativa usate entrambi un Wi‑Fi.",
+            config::DEFAULT_PORT
+        )
     } else if !f.found_in_dht && f.dial_errors.is_empty() {
         "Dispositivo non trovato. L'app è aperta sull'altro dispositivo? Se è appena stata aperta, \
          aspetta un minuto e riprova."
@@ -952,7 +968,7 @@ fn main() {
                 listen_port: std::env::var("LSO_PORT")
                     .ok()
                     .and_then(|p| p.parse().ok())
-                    .unwrap_or(0),
+                    .unwrap_or(config::DEFAULT_PORT),
                 reachable: true,
                 enable_mdns: true,
                 enable_upnp: true,

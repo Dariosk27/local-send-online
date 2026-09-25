@@ -106,6 +106,25 @@ Il control plane funziona quindi sull'Internet reale; il data plane diretto
 tra due reti "normali" va ancora verificato su reti domestiche (procedura
 sotto).
 
+### Prova dell'utente: rete mobile ↔ Wi‑Fi (25/09/2026)
+
+App desktop (prima versione), un lato sull'hotspot del telefono e l'altro su
+Wi‑Fi di casa: il peer viene trovato e il canale relay di segnalazione
+funziona, ma il hole punching fallisce; la diagnosi locale segnala NAT
+simmetrico (tipico del CGNAT mobile) e nessun router UPnP. È il caso
+"impossibile" previsto dalla matrice (simmetrico ↔ port‑restricted).
+
+Miglioramenti introdotti dopo questa prova:
+- **porta fissa 47800** (TCP+UDP) invece di una casuale: l'UPnP del router e
+  un port forwarding manuale restano validi tra un avvio e l'altro; con la
+  porta aperta sul lato di casa il caso diventa "simmetrico → porta inoltrata",
+  che nel laboratorio riesce (scenario `sym-forward`);
+- **IPv6**: gli indirizzi IPv6 globali vengono annunciati, e il nodo si
+  procura un indirizzo osservato in IPv6 così che DCUtR tenti il hole punching
+  anche su IPv6 (niente NAT, solo firewall stateful). Scenario `sym-sym-v6`
+  nel laboratorio; **non ancora verificato**: il kernel dell'ambiente di
+  sviluppo non ha IPv6 (in CI verrà eseguito su runner con IPv6).
+
 ### A mano, tra due reti vere (procedura consigliata)
 
 Compila su ciascuna macchina (`cargo build --release`) oppure scarica gli

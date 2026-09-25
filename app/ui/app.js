@@ -558,6 +558,11 @@
     $('netRelays').textContent = status.reservations ? `${status.reservations} attivi` : 'nessuno';
     $('netPeers').textContent = status.dht_peers;
     $('netObserved').textContent = [...new Set(status.observed.map((a) => a.split('/')[2]))].join(', ') || 'non ancora noto';
+    $('netV6').textContent = status.ipv6 ? 'sì' : 'no';
+    $('netPort').textContent = status.port ?? '—';
+    $('netPortTip').textContent = status.port
+      ? `Per ricevere anche da reti mobili (4G/5G): attiva l'UPnP sul router di casa, oppure apri la porta ${status.port} (TCP e UDP) verso questo computer.`
+      : '';
     $('netHints').replaceChildren(...status.hints.map((h) => el('li', '', h)));
   }
 

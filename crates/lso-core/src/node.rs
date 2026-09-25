@@ -35,6 +35,8 @@ use libp2p::{
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 
+pub use libp2p::multiaddr::Protocol as MultiaddrProtocol;
+
 use crate::{
     config::{self, AGENT_VERSION},
     direct_only::{is_relayed, DirectOnly},
@@ -280,12 +282,15 @@ impl Node {
         for ip in ["0.0.0.0", "::"] {
             let v = if ip == "::" { "ip6" } else { "ip4" };
             let port = cfg.listen_port;
-            for a in [
-                format!("/{v}/{ip}/udp/{port}/quic-v1"),
-                format!("/{v}/{ip}/tcp/{port}"),
-            ] {
+            for proto in ["udp", "tcp"] {
+                let suffix = if proto == "udp" { "/quic-v1" } else { "" };
+                let a = format!("/{v}/{ip}/{proto}/{port}{suffix}");
                 if let Err(e) = swarm.listen_on(a.parse()?) {
                     tracing::debug!("cannot listen on {a}: {e}");
+                    // Port taken (e.g. a second instance): any free port.
+                    if port != 0 {
+                        let _ = swarm.listen_on(format!("/{v}/{ip}/{proto}/0{suffix}").parse()?);
+                    }
                 }
             }
         }
@@ -494,6 +499,9 @@ struct State {
     /// Extra keys we announce (short codes), and lookups in progress.
     extra_keys: HashSet<kad::RecordKey>,
     key_lookups: Vec<KeyLookup>,
+
+    has_global_v6: bool,
+    v6_probes: u32,
 }
 
 impl State {
@@ -517,6 +525,8 @@ impl State {
             holepunched: HashSet::new(),
             extra_keys: HashSet::new(),
             key_lookups: vec![],
+            has_global_v6: false,
+            v6_probes: 0,
         }
     }
 
@@ -806,6 +816,13 @@ fn on_swarm_event(swarm: &mut Swarm<Behaviour>, st: &mut State, ev: SwarmEvent<B
     match ev {
         SwarmEvent::NewListenAddr { address, .. } => {
             if !is_relayed(&address) {
+                // A global IPv6 address is not translated by any NAT: it *is*
+                // our public address (a stateful firewall may still filter
+                // it, which hole punching handles).
+                if is_global_ipv6(&address) {
+                    st.has_global_v6 = true;
+                    swarm.add_external_address(address.clone());
+                }
                 st.listen_addrs.push(address.clone());
                 st.emit(NodeEvent::Listening(address));
             }
@@ -931,6 +948,25 @@ fn on_behaviour_event(swarm: &mut Swarm<Behaviour>, st: &mut State, ev: Behaviou
                             .entry(peer_id)
                             .or_insert_with(|| addr.clone());
                     }
+                }
+            }
+            // Hole punching over IPv6 needs our IPv6 address as a DCUtR
+            // candidate, i.e. observed by someone over IPv6. Connections
+            // usually go over IPv4 first, so dial a few public peers on IPv6.
+            let observed_v6 = st.observed.values().any(is_global_ipv6);
+            if st.has_global_v6 && !observed_v6 && st.v6_probes < 4 && peer_id != st.me {
+                if let Some(a) = info
+                    .listen_addrs
+                    .iter()
+                    .find(|a| is_global_ipv6(a) && a.iter().any(|p| matches!(p, Protocol::QuicV1)))
+                {
+                    st.v6_probes += 1;
+                    let _ = swarm.dial(
+                        DialOpts::peer_id(peer_id)
+                            .addresses(vec![a.clone()])
+                            .condition(PeerCondition::Always)
+                            .build(),
+                    );
                 }
             }
             let is_dht_server = info.protocols.contains(&kad::PROTOCOL_NAME);
@@ -1090,6 +1126,10 @@ fn first_ip(a: &Multiaddr) -> Option<IpAddr> {
             Protocol::Ip6(ip) => Some(IpAddr::V6(ip)),
             _ => None,
         })
+}
+
+fn is_global_ipv6(a: &Multiaddr) -> bool {
+    matches!(a.iter().next(), Some(Protocol::Ip6(ip)) if (ip.segments()[0] & 0xe000) == 0x2000)
 }
 
 /// Globally routable IP (or a DNS name).

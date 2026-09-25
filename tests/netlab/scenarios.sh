@@ -34,8 +34,13 @@ setup() { # natA natB [receiver-port]
   local n ip
   for n in infra infra2; do
     [ $n = infra ] && ip=80.10.0.2 || ip=80.40.0.2
+    local ext6=()
+    if [ "${LAB_IPV6:-0}" = 1 ]; then
+      local v6; [ $n = infra ] && v6=2001:db8:10::2 || v6=2001:db8:40::2
+      ext6=(--external /ip6/$v6/udp/4001/quic-v1 --external /ip6/$v6/tcp/4001)
+    fi
     "$NL" exec $n "$B" --identity "$W/$n.key" --port 4001 --no-default-bootstrap infra \
-      --external /ip4/$ip/udp/4001/quic-v1 --external /ip4/$ip/tcp/4001 >"$W/$n.out" 2>&1 &
+      --external /ip4/$ip/udp/4001/quic-v1 --external /ip4/$ip/tcp/4001 "${ext6[@]}" >"$W/$n.out" 2>&1 &
     sleep 0.5
     BOOT+=(--bootstrap "/ip4/$ip/udp/4001/quic-v1/p2p/$("$B" --identity "$W/$n.key" id)")
     BOOT+=(--bootstrap "/ip4/$ip/tcp/4001/p2p/$("$B" --identity "$W/$n.key" id)")
@@ -111,7 +116,7 @@ run_code() {
     "$(grep -o 'connessione DIRETTA via [^ ]*' "$W/send.log" | head -1)"
 }
 
-ALL=(cone-ticket cone-dht cone-sym sym-sym sym-forward resume code)
+ALL=(cone-ticket cone-dht cone-sym sym-sym sym-forward resume code sym-sym-v6)
 for s in "${@:-${ALL[@]}}"; do
   case $s in
     cone-ticket) run_simple "cone/cone, ticket" cone cone ticket direct ;;
@@ -121,6 +126,11 @@ for s in "${@:-${ALL[@]}}"; do
     sym-forward) run_simple "symmetric/port-forwarded receiver" symmetric forward ticket direct 5000 ;;
     resume)      run_resume ;;
     code)        run_code ;;
+    sym-sym-v6)
+      if [ ! -d /proc/sys/net/ipv6 ]; then
+        RESULTS+=("SKIP symmetric/symmetric + IPv6              (kernel senza IPv6)"); echo "${RESULTS[-1]}"; continue
+      fi
+      LAB_IPV6=1 run_simple "symmetric/symmetric + IPv6 (firewalled)" symmetric symmetric peerid direct ;;
   esac
 done
 echo; echo "================ summary"

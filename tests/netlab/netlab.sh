@@ -23,6 +23,10 @@
 #   forward   cone + manual port forwarding of TCP/UDP 5000 to the host
 #             (what UPnP/NAT-PMP or a user-configured router rule gives you).
 #
+# LAB_IPV6=1 also gives every site global IPv6 (2001:db8::/32, routed, no NAT)
+# with a stateful firewall on each router that drops unsolicited inbound
+# traffic, like home routers and mobile networks with IPv6 do.
+#
 # Usage (root):  netlab.sh up <natA-type> <natB-type> | down | exec <ns> <cmd...>
 set -euo pipefail
 
@@ -98,7 +102,34 @@ up() {
     ip -n "lab-host$x" addr add "192.168.$net.2/24" dev eth0
     ip -n "lab-host$x" route add default via "192.168.$net.1"
   done
-  echo "lab up: natA=$ta natB=$tb"
+  [ "${LAB_IPV6:-0}" = 1 ] && up_ipv6
+  echo "lab up: natA=$ta natB=$tb ipv6=${LAB_IPV6:-0}"
+}
+
+up_ipv6() {
+  local n
+  for n in inet natA natB; do ip netns exec "lab-$n" sysctl -qw net.ipv6.conf.all.forwarding=1; done
+  for n in "${NS[@]}"; do ip netns exec "lab-$n" sysctl -qw net.ipv6.conf.all.accept_dad=0 net.ipv6.conf.default.accept_dad=0; done
+  ip -n lab-inet addr add 2001:db8:10::1/64 dev i-infra nodad
+  ip -n lab-inet addr add 2001:db8:40::1/64 dev i-infra2 nodad
+  ip -n lab-inet addr add 2001:db8:20::1/64 dev i-natA nodad
+  ip -n lab-inet addr add 2001:db8:30::1/64 dev i-natB nodad
+  ip -n lab-infra addr add 2001:db8:10::2/64 dev wan nodad
+  ip -n lab-infra -6 route add default via 2001:db8:10::1
+  ip -n lab-infra2 addr add 2001:db8:40::2/64 dev wan nodad
+  ip -n lab-infra2 -6 route add default via 2001:db8:40::1
+  local x w l
+  for x in A B; do
+    if [ $x = A ]; then w=20; l=a; else w=30; l=b; fi
+    ip -n "lab-nat$x" addr add "2001:db8:$w::2/64" dev wan nodad
+    ip -n "lab-nat$x" -6 route add default via "2001:db8:$w::1"
+    ip -n "lab-nat$x" addr add "2001:db8:$l::1/64" dev lan nodad
+    ip -n lab-inet -6 route add "2001:db8:$l::/64" via "2001:db8:$w::2"
+    ip -n "lab-host$x" addr add "2001:db8:$l::2/64" dev eth0 nodad
+    ip -n "lab-host$x" -6 route add default via "2001:db8:$l::1"
+    ip netns exec "lab-nat$x" ip6tables -A FORWARD -i wan -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+    ip netns exec "lab-nat$x" ip6tables -A FORWARD -i wan -j DROP
+  done
 }
 
 down() {

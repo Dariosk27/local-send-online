@@ -40,6 +40,10 @@ pub fn default_bootstrap() -> Vec<Multiaddr> {
         .collect()
 }
 
+/// Default port (TCP and UDP) of the desktop app. Fixed so that UPnP and a
+/// manual port forward on the home router keep working across restarts.
+pub const DEFAULT_PORT: u16 = 47800;
+
 /// How many relay reservations a receiving node tries to keep open. More
 /// than one so that a single relay going away does not make us unreachable.
 pub const TARGET_RESERVATIONS: usize = 2;
